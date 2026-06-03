@@ -81,41 +81,59 @@ def merge_or_expand(
     xy_distance_threshold: float = 200.0,
     expand_ratio: float = 0.125,
 ) -> list[dict]:
-    """智能合并或扩大：合并近距离的检测框，对无法合并的单个框做扩大。
+    """智能合并或扩大。
 
     策略：
-      1. 先按中心距离合并（merge_nearby_boxes）
-      2. 对于 merged_from==1（合并失败的单飞框），左右各扩 1/8 图宽、上下各扩 1/8 图高
-      3. 对于 merged_from>=2（合并成功的组），保持不动
+      1. 仅剩 1 个框 → 扩大：左右各扩 1/8 图宽、上下各扩 1/8 图高
+      2. 剩余 2+ 个框 → 检查 y 范围是否有重叠（同一水平线），
+         全部重叠 → 合并为外接矩形；有框不重叠 → 返回空，视为检测失败
 
     Args:
         detections: 检测结果列表。
         image_width: 图像宽度。
         image_height: 图像高度。
-        xy_distance_threshold: 合并中心距离阈值。
-        expand_ratio: 单飞框的扩展比例。
+        xy_distance_threshold: 合并中心距离阈值（已废弃，保留接口兼容）。
+        expand_ratio: 单框的扩展比例。
 
     Returns:
-        处理后的检测结果列表。不包含 merged_from 内部字段。
+        处理后的检测结果列表。失败时返回空列表。
     """
     if len(detections) <= 1:
         return [
             expand_single_box(detections[0], image_width, image_height, expand_ratio)
         ]
 
-    merged_groups = merge_nearby_boxes(detections, xy_distance_threshold)
+    # 2+ 个框：检查是否全部在同一水平线上（y 范围有重叠）
+    all_overlap = True
+    for i in range(len(detections)):
+        for j in range(i + 1, len(detections)):
+            yi1 = detections[i]["bbox"][1]
+            yi2 = detections[i]["bbox"][3]
+            yj1 = detections[j]["bbox"][1]
+            yj2 = detections[j]["bbox"][3]
+            y_overlap = max(0, min(yi2, yj2) - max(yi1, yj1))
+            if y_overlap <= 0:
+                all_overlap = False
+                break
+        if not all_overlap:
+            break
 
-    result: list[dict] = []
-    for group in merged_groups:
-        count = group.pop("merged_from", 1)
-        if count == 1:
-            result.append(
-                expand_single_box(group, image_width, image_height, expand_ratio)
-            )
-        else:
-            result.append(group)
+    if not all_overlap:
+        return []
 
-    return result
+    # 全部重叠 → 合并为外接矩形
+    x1 = min(d["bbox"][0] for d in detections)
+    y1 = min(d["bbox"][1] for d in detections)
+    x2 = max(d["bbox"][2] for d in detections)
+    y2 = max(d["bbox"][3] for d in detections)
+    best_conf = max(d["confidence"] for d in detections)
+
+    return [
+        {
+            "bbox": [x1, y1, x2, y2],
+            "confidence": round(best_conf, 3),
+        }
+    ]
 
 
 def expand_single_box(
