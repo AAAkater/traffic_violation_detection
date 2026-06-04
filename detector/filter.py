@@ -1,35 +1,86 @@
 """检测框空间过滤 — 按位置筛选红绿灯 bbox。"""
 
+from __future__ import annotations
 
-def filter_upper_region(
-    detections: list[dict],
+import numpy as np
+
+from detector.models.detect_model import Detection
+from detector.utils import logger
+from detector.utils.image_tools import crop_and_save_traffic_lights
+
+
+def filter_spatial(
+    detections: list[Detection],
     image_height: int,
+    image_width: int,
+    image: np.ndarray | None = None,
     upper_ratio: float = 0.5,
-) -> tuple[list[dict], list[dict]]:
-    """仅保留图片中上部的红绿灯，剔除下半区域的检测框。
+    edge_ratio: float = 0.20,
+    label: str = "",
+    save_dir: str = "",
+    prefix: str = "traffic_light",
+) -> tuple[list[Detection], list[Detection], list[Detection]]:
+    """按空间位置过滤检测框：上半区域 + 水平边缘。
 
-    在行车记录仪画面中，红绿灯通常位于画面上方（安装在高处），
-    下半区域的检测框往往是背面、反射或误检，应予以剔除。
+    在行车记录仪画面中，红绿灯通常位于画面上方且不在水平边缘，
+    下半区域或左右边缘的检测框往往是背面、行人灯或误检。
 
     Args:
-        detections: 检测结果列表，每条含 "bbox" 字段。
+        detections: 检测结果列表。
         image_height: 图片高度（像素）。
+        image_width: 图片宽度（像素）。
+        image: 原始图像（BGR 格式），用于保存被剔除的裁剪图。为 None 时不保存。
         upper_ratio: 判定"上部"的占比线，默认 0.5 即上半 50%。
+        edge_ratio: 水平边缘剔除比例，默认 0.20 即左右各 20%。
+        label: 日志前缀，如 "[image_stem][q_name]"。
+        save_dir: 保存根目录，被剔除的裁剪图将保存到其子目录。为空时不保存。
+        prefix: 保存文件名前缀。
 
     Returns:
-        (kept, removed): 保留的检测框列表 + 被剔除的检测框列表。
+        (kept, removed_lower, removed_edge): 保留的检测框 + 下半区域剔除 + 边缘剔除。
     """
-    cutoff = image_height * upper_ratio
+    cutoff_y = image_height * upper_ratio
+    cutoff_x_left = image_width * edge_ratio
+    cutoff_x_right = image_width * (1 - edge_ratio)
 
-    kept: list[dict] = []
-    removed: list[dict] = []
+    kept: list[Detection] = []
+    removed_lower: list[Detection] = []
+    removed_edge: list[Detection] = []
 
     for d in detections:
-        x1, y1, x2, y2 = d["bbox"]
-        center_y = (y1 + y2) / 2
-        if center_y < cutoff:
-            kept.append(d)
+        if d.center_y >= cutoff_y:
+            removed_lower.append(d)
+        elif d.center_x < cutoff_x_left or d.center_x > cutoff_x_right:
+            removed_edge.append(d)
         else:
-            removed.append(d)
+            kept.append(d)
 
-    return kept, removed
+    prefix_log = f"{label} " if label else ""
+    if removed_lower:
+        logger.debug(
+            f"{prefix_log}剔除 {len(removed_lower)} 个下半区域框, 保留 {len(kept)} 个"
+        )
+    if removed_edge:
+        logger.debug(
+            f"{prefix_log}剔除 {len(removed_edge)} 个边缘框(疑似行人灯), "
+            f"保留 {len(kept)} 个中间区域"
+        )
+
+    # 保存被剔除的裁剪图
+    if image is not None and save_dir:
+        if removed_lower:
+            crop_and_save_traffic_lights(
+                image,
+                removed_lower,
+                output_dir=f"{save_dir}/filtered_lower",
+                prefix=prefix,
+            )
+        if removed_edge:
+            crop_and_save_traffic_lights(
+                image,
+                removed_edge,
+                output_dir=f"{save_dir}/filtered_edge",
+                prefix=prefix,
+            )
+
+    return kept, removed_lower, removed_edge

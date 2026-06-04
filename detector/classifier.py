@@ -8,6 +8,7 @@
 import cv2
 import numpy as np
 
+from detector.models.detect_model import Detection
 from detector.utils import logger
 
 
@@ -205,6 +206,51 @@ def is_vehicle_traffic_light(
     )
 
     return True
+
+
+def classify_and_filter_back(
+    detections: list[Detection],
+    image: np.ndarray,
+    label: str = "",
+    save_dir: str = "",
+    prefix: str = "traffic_light",
+) -> tuple[list[Detection], list[Detection]]:
+    """对检测框逐一分类正/背面，保留正面机动车灯，剔除背面。
+
+    Args:
+        detections: 经过空间过滤后的检测框列表。
+        image: 原始图像（BGR 格式），用于裁剪和保存。
+        label: 日志前缀，如 "[image_stem][q_name]"。
+        save_dir: 保存根目录，背面裁剪图将保存到其子目录。为空时不保存。
+        prefix: 保存文件名前缀。
+
+    Returns:
+        (vehicle_detections, removed_back): 正面机动车灯 + 被剔除的背面灯。
+    """
+    from detector.utils.image_tools import crop_and_save_traffic_lights
+
+    vehicle_detections: list[Detection] = []
+    removed_back: list[Detection] = []
+
+    for d in detections:
+        x1b, y1b, x2b, y2b = int(d.x1), int(d.y1), int(d.x2), int(d.y2)
+        crop = image[y1b:y2b, x1b:x2b]
+        if is_front_facing(crop):
+            vehicle_detections.append(d)
+        else:
+            logger.debug(f"{label} 跳过 背面 ({d.width:.0f}×{d.height:.0f})")
+            removed_back.append(d)
+
+    # 保存被剔除的背面裁剪图
+    if save_dir and removed_back:
+        crop_and_save_traffic_lights(
+            image,
+            removed_back,
+            output_dir=f"{save_dir}/filtered_back",
+            prefix=prefix,
+        )
+
+    return vehicle_detections, removed_back
 
 
 def classify_traffic_light(

@@ -3,15 +3,26 @@
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+from pydantic import BaseModel, Field
 from tqdm import tqdm
-from ultralytics import YOLO
 
-from detector.detection import detect_traffic_lights
-from detector.filter import filter_upper_region
+from detector.classifier import classify_and_filter_back
+from detector.filter import filter_spatial
 from detector.merger import merge_or_expand
-from detector.saver import crop_and_save_traffic_lights, save_quadrants
-from detector.splitter import split_image_into_4
-from detector.utils import logger
+from detector.models import TrafficLightDetector
+from detector.models.detect_model import Detection
+from detector.utils import image_tools, logger
+from detector.utils.image_tools import (
+    crop_and_save_traffic_lights,
+)
+
+
+class DetectionStats(BaseModel):
+    """单张图片的检测统计结果。"""
+
+    all: int = Field(default=0, description="YOLO 原始检出总数")
+    vehicle: int = Field(default=0, description="正面机动车灯数量")
 
 
 def run(
@@ -20,7 +31,7 @@ def run(
     conf_threshold: float = 0.5,
     base_output_dir: str | None = None,
     image_stem: str | None = None,
-) -> dict:
+) -> DetectionStats:
     """执行完整的红绿灯检测流水线。
 
     1. 将大图分割为 4 个子图并保存
@@ -36,9 +47,9 @@ def run(
         image_stem: 图片标识名（不含扩展名），用于命名输出子目录。
 
     Returns:
-        {"all": n_all, "vehicle": n_vehicle} 统计信息。
+        DetectionStats 统计信息。
     """
-    model = YOLO(model_path, verbose=False)
+    detector = TrafficLightDetector(model_path, conf_threshold=conf_threshold)
 
     if base_output_dir is None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -51,175 +62,146 @@ def run(
     quadrants_dir = f"{base_output_dir}/{image_stem}/quadrants"
     crops_all_dir = f"{base_output_dir}/{image_stem}/crops_all"
     crops_dir = f"{base_output_dir}/{image_stem}/crops"
-    # 各筛选步骤被踢掉的图片存放目录
-    filtered_lower_dir = f"{base_output_dir}/{image_stem}/filtered_lower"  # 下半区域
-    filtered_edge_dir = f"{base_output_dir}/{image_stem}/filtered_edge"  # 水平边缘
-    filtered_back_dir = f"{base_output_dir}/{image_stem}/filtered_back"  # 背面
+    # 各筛选步骤被踢掉的图片存放根目录
+    filter_save_dir = f"{base_output_dir}/{image_stem}"
 
     # 1. 分割
-    quadrants = split_image_into_4(image_path)
-    save_quadrants(quadrants, output_dir=quadrants_dir)
+    quadrants = image_tools.split_image_into_4(image_path)
+    image_tools.save_quadrants(quadrants, output_dir=quadrants_dir)
 
-    # 建立名称 → 子图的映射，方便按名取用
-    quadrant_map = {name: img for name, img in quadrants}
-
-    from detector.classifier import is_front_facing
-
-    stats = {"all": 0, "vehicle": 0}
+    stats = DetectionStats()
 
     # ------------------------------------------------------------------
-    # 2. 左上：完整检测流水线（YOLO → 过滤 → 分类 → 合并），得到最终 bbox
-    #    右上 / 左下 与 左上 为同一摄像头同一角度，交通灯位置相同，
-    #    后续直接复用 左上 的合并后 bbox 裁剪，跳过重复检测。
+    # 2. 依次在 左上 → 右上 → 左下 上执行完整检测流水线，
+    #    直到某个象限成功检出并合并为止。
+    #    三者为同一摄像头同一角度不同时间的拍照，交通灯位置相同，
+    #    检出成功后，其余象限直接复用合并 bbox 裁剪。
     # ------------------------------------------------------------------
-    # ---- 2a. 左上 完整检测 ----
-    tl_name = "左上"
-    tl_img = quadrant_map[tl_name]
-    logger.debug(f"[{image_stem}][{tl_name}] 检测中…")
 
-    shared_merged: list[dict] = []  # 合并后的 bbox，将复用于 右上/左下
-    tl_raw: list[dict] = []  # YOLO 原始检出，用于 crops_all（不经过任何管线过滤）
+    def _detect_quadrant(
+        q_name: str,
+        q_img: np.ndarray,
+    ) -> tuple[list[Detection], list[Detection]]:
+        """对单个象限执行完整管线（YOLO → 过滤 → 分类 → 合并）。
 
-    raw_detections = detect_traffic_lights(model, tl_img, conf_threshold=conf_threshold)
-    tl_raw = raw_detections
+        各步骤的保存（crops_all、filtered_*、crops）在函数内部完成。
 
-    # ---- 保存 YOLO 原始检出到 crops_all（不筛选，仅 YOLO 原生结果） ----
-    if tl_raw:
+        Returns:
+            (raw, merged): YOLO 原始检出 + 合并后的机动车灯。
+        """
+        logger.debug(f"[{image_stem}][{q_name}] 检测中…")
+
+        raw = detector.detect(q_img)
+
+        if not raw:
+            logger.debug(f"[{image_stem}][{q_name}] 检出 0 个")
+            return raw, []
+
+        h, w = q_img.shape[:2]
+        _prefix = f"traffic_light_{q_name}"
+        _label = f"[{image_stem}][{q_name}]"
+
+        # 保存 YOLO 原始检出
         crop_and_save_traffic_lights(
-            tl_img,
-            tl_raw,
+            q_img,
+            raw,
             output_dir=crops_all_dir,
-            prefix=f"traffic_light_{tl_name}",
-            skip_back_side=False,
-            skip_pedestrian=False,
+            prefix=_prefix,
         )
-        stats["all"] += len(tl_raw)
 
-    # ---- 管线过滤：上半区域 → 水平边缘 → 分类 → 合并 ----
-    tl_detections = detect_traffic_lights(model, tl_img, conf_threshold=0.6)
-
-    if tl_detections:
-        h, w = tl_img.shape[:2]
-
-        # 上半区域过滤
-        upper_detections, removed = filter_upper_region(
-            tl_detections, h, upper_ratio=0.5
+        # 空间过滤：上半区域 + 水平边缘（内部保存被剔除的裁剪图）
+        center_detections, _, _ = filter_spatial(
+            raw,
+            h,
+            w,
+            image=q_img,
+            upper_ratio=0.5,
+            edge_ratio=0.20,
+            label=_label,
+            save_dir=filter_save_dir,
+            prefix=_prefix,
         )
-        if removed:
+
+        if not center_detections:
+            return raw, []
+
+        logger.debug(
+            f"[{image_stem}][{q_name}] YOLO检出 {len(center_detections)} 个: "
+            + ", ".join(
+                f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})"
+                for d in center_detections
+            )
+        )
+
+        # 正/背面分类（内部保存被剔除的背面裁剪图）
+        vehicle_detections, _ = classify_and_filter_back(
+            center_detections,
+            q_img,
+            label=_label,
+            save_dir=filter_save_dir,
+            prefix=_prefix,
+        )
+
+        if not vehicle_detections:
+            return raw, []
+
+        # 合并 + 扩大
+        merged = merge_or_expand(vehicle_detections, w, h)
+        if not merged:
             logger.debug(
-                f"[{image_stem}][{tl_name}] 剔除 {len(removed)} 个下半区域框, "
-                f"保留 {len(upper_detections)} 个"
+                f"[{image_stem}][{q_name}] 合并失败({len(vehicle_detections)} 个框不在同一水平线), 视为检测失败"
             )
-            # 保存被踢掉的下半区域图片
+        elif len(merged) < len(vehicle_detections):
+            logger.debug(
+                f"[{image_stem}][{q_name}] 合并: {len(vehicle_detections)} → {len(merged)} 组"
+            )
+
+        # 保存合并后的最终结果
+        if merged:
             crop_and_save_traffic_lights(
-                tl_img,
-                removed,
-                output_dir=filtered_lower_dir,
-                prefix=f"traffic_light_{tl_name}",
-                skip_back_side=False,
-                skip_pedestrian=False,
+                q_img,
+                merged,
+                output_dir=crops_dir,
+                prefix=_prefix,
             )
 
-        if upper_detections:
-            # 水平边缘过滤
-            edge_ratio = 0.20
-            center_detections: list[dict] = []
-            edge_detections: list[dict] = []
-            for d in upper_detections:
-                x1b, y1b, x2b, y2b = d["bbox"]
-                cx = (x1b + x2b) / 2
-                if cx < w * edge_ratio or cx > w * (1 - edge_ratio):
-                    edge_detections.append(d)
-                else:
-                    center_detections.append(d)
+        return raw, merged
 
-            if edge_detections:
-                logger.debug(
-                    f"[{image_stem}][{tl_name}] 剔除 {len(edge_detections)} 个边缘框(疑似行人灯), "
-                    f"保留 {len(center_detections)} 个中间区域"
-                )
-                # 保存被踢掉的边缘区域图片
-                crop_and_save_traffic_lights(
-                    tl_img,
-                    edge_detections,
-                    output_dir=filtered_edge_dir,
-                    prefix=f"traffic_light_{tl_name}",
-                    skip_back_side=False,
-                    skip_pedestrian=False,
-                )
+    # 依次尝试 左上 → 右上 → 左下，直到成功检出
+    primary_name: str | None = None
+    shared_merged: list[Detection] = []
 
-            if center_detections:
-                logger.debug(
-                    f"[{image_stem}][{tl_name}] YOLO检出 {len(center_detections)} 个: "
-                    + ", ".join(
-                        f"({d['bbox'][2] - d['bbox'][0]:.0f}×{d['bbox'][3] - d['bbox'][1]:.0f}@{d['confidence']:.2f})"
-                        for d in center_detections
-                    )
-                )
+    for q_name, q_img in quadrants:
+        if q_name == "右下":
+            continue  # 右下不同角度，跳过
+        raw, merged = _detect_quadrant(q_name, q_img)
+        if merged:
+            primary_name = q_name
+            shared_merged = merged
+            stats.all += len(raw)
+            stats.vehicle += len(merged)
+            logger.debug(
+                f"[{image_stem}] 检出成功象限: {q_name}, "
+                f"all={len(raw)} vehicle={len(merged)}"
+            )
+            break
+        else:
+            logger.debug(f"[{image_stem}][{q_name}] 未检出，尝试下一象限")
 
-                # 正/背面分类（仅排除背面）
-                vehicle_detections = []
-                back_detections = []
-                for d in center_detections:
-                    x1b, y1b, x2b, y2b = map(int, d["bbox"])
-                    crop = tl_img[y1b:y2b, x1b:x2b]
-                    if is_front_facing(crop):
-                        vehicle_detections.append(d)
-                    else:
-                        w_box, h_box = x2b - x1b, y2b - y1b
-                        logger.debug(
-                            f"[{image_stem}][{tl_name}] 跳过 背面 ({w_box}×{h_box})"
-                        )
-                        back_detections.append(d)
-
-                # 保存被踢掉的背面图片
-                if back_detections:
-                    crop_and_save_traffic_lights(
-                        tl_img,
-                        back_detections,
-                        output_dir=filtered_back_dir,
-                        prefix=f"traffic_light_{tl_name}",
-                        skip_back_side=False,
-                        skip_pedestrian=False,
-                    )
-
-                if vehicle_detections:
-                    # 合并 + 扩大
-                    shared_merged = merge_or_expand(vehicle_detections, w, h)
-                    if not shared_merged:
-                        logger.debug(
-                            f"[{image_stem}][{tl_name}] 合并失败({len(vehicle_detections)} 个框不在同一水平线), 视为检测失败"
-                        )
-                    elif len(shared_merged) < len(vehicle_detections):
-                        logger.debug(
-                            f"[{image_stem}][{tl_name}] 合并: {len(vehicle_detections)} → {len(shared_merged)} 组"
-                        )
-
-                    if shared_merged:
-                        crop_and_save_traffic_lights(
-                            tl_img,
-                            shared_merged,
-                            output_dir=crops_dir,
-                            prefix=f"traffic_light_{tl_name}",
-                            skip_back_side=False,
-                            skip_pedestrian=False,
-                        )
-                        stats["vehicle"] += len(shared_merged)
-
-                        logger.debug(
-                            f"[{image_stem}][{tl_name}] 保存 all={len(tl_raw)} vehicle={len(shared_merged)}"
-                        )
-
-    # ---- 2b. 右上 / 左下：复用 左上 的合并 bbox 直接裁剪 ----
-    for name in ["右上", "左下"]:
-        sub_img = quadrant_map[name]
+    # 其余象限复用合并 bbox 直接裁剪（左上/右上/左下 同角度，右下不同角度跳过）
+    for name, sub_img in quadrants:
+        if name == "右下":
+            continue  # 右下不同角度，跳过
 
         if not shared_merged:
             logger.debug(f"[{image_stem}][{name}] 无共享合并 bbox，跳过")
             continue
 
+        if name == primary_name:
+            continue  # 已经保存过，跳过
+
         logger.debug(
-            f"[{image_stem}][{name}] 复用 左上 的 {len(shared_merged)} 个合并 bbox 裁剪"
+            f"[{image_stem}][{name}] 复用 {primary_name} 的 {len(shared_merged)} 个合并 bbox 裁剪"
         )
 
         crop_and_save_traffic_lights(
@@ -227,14 +209,10 @@ def run(
             shared_merged,
             output_dir=crops_dir,
             prefix=f"traffic_light_{name}",
-            skip_back_side=False,
-            skip_pedestrian=False,
         )
-        stats["vehicle"] += len(shared_merged)
+        stats.vehicle += len(shared_merged)
 
-        logger.debug(
-            f"[{image_stem}][{name}] 保存 raw={len(tl_raw)} vehicle={len(shared_merged)}"
-        )
+        logger.debug(f"[{image_stem}][{name}] 保存 vehicle={len(shared_merged)}")
 
     return stats
 
@@ -290,9 +268,9 @@ def run_batch(
             base_output_dir=output_dir,
             image_stem=stem,
         )
-        total_all += stats["all"]
-        total_vehicle += stats["vehicle"]
-        if stats["all"] == 0:
+        total_all += stats.all
+        total_vehicle += stats.vehicle
+        if stats.all == 0:
             total_skipped += 1
 
         # 更新进度条后缀
