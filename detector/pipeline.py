@@ -1,5 +1,6 @@
 """检测流水线 — 编排图片分割、检测、合并、分类、保存全流程。"""
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -8,13 +9,16 @@ from pydantic import BaseModel, Field
 from tqdm import tqdm
 
 from detector.classifier import classify_and_filter_back
-from detector.filter import filter_spatial
 from detector.merger import merge_or_expand
 from detector.models import TrafficLightDetector
 from detector.models.detect_model import Detection
 from detector.utils import image_tools, logger
 from detector.utils.image_tools import (
+    compress_image_to_1080p,
+    compress_quadrants_to_1080p,
     crop_and_save_traffic_lights,
+    crop_upper_region,
+    save_cropped_region,
 )
 
 
@@ -35,9 +39,10 @@ def run(
     """执行完整的红绿灯检测流水线。
 
     1. 将大图分割为 4 个子图并保存
-    2. 对每个子图分别检测红绿灯
-    3. 合并同一灯杆上的检测框
-    4. 分类正/背面/行人灯并保存
+    2. 裁剪子图上半区域（去掉下半 + 左右边缘）
+    3. 对裁剪区域执行 YOLO 检测，坐标映射回原图
+    4. 分类正/背面并保存
+    5. 合并同一灯杆上的检测框
 
     Args:
         image_path: 输入图片路径。
@@ -60,6 +65,7 @@ def run(
         image_stem = Path(image_path).stem
 
     quadrants_dir = f"{base_output_dir}/{image_stem}/quadrants"
+    cropped_dir = f"{base_output_dir}/{image_stem}/cropped"
     crops_all_dir = f"{base_output_dir}/{image_stem}/crops_all"
     crops_dir = f"{base_output_dir}/{image_stem}/crops"
     # 各筛选步骤被踢掉的图片存放根目录
@@ -82,26 +88,36 @@ def run(
         q_name: str,
         q_img: np.ndarray,
     ) -> tuple[list[Detection], list[Detection]]:
-        """对单个象限执行完整管线（YOLO → 过滤 → 分类 → 合并）。
+        """对单个象限执行完整管线（裁剪 → YOLO → 分类 → 合并）。
 
-        各步骤的保存（crops_all、filtered_*、crops）在函数内部完成。
+        先裁剪上半区域再送入 YOLO，减少检测范围、提高速度和准确性。
+        各步骤的保存在函数内部完成。
 
         Returns:
-            (raw, merged): YOLO 原始检出 + 合并后的机动车灯。
+            (raw, merged): YOLO 原始检出（坐标已映射回原图）+ 合并后的机动车灯。
         """
         logger.debug(f"[{image_stem}][{q_name}] 检测中…")
 
-        raw = detector.detect(q_img)
+        # 先裁剪上半区域（去掉下半 + 左右边缘），再送入 YOLO
+        cropped, offset_y, offset_x = crop_upper_region(
+            q_img, upper_ratio=0.5, edge_ratio=0.20
+        )
+        save_cropped_region(cropped, f"{cropped_dir}/{q_name}.jpg")
+
+        raw = detector.detect(cropped)
 
         if not raw:
             logger.debug(f"[{image_stem}][{q_name}] 检出 0 个")
             return raw, []
 
+        # 将裁剪区域内的坐标映射回原图坐标
+        raw = [d.shift(dx=offset_x, dy=offset_y) for d in raw]
+
         h, w = q_img.shape[:2]
         _prefix = f"traffic_light_{q_name}"
         _label = f"[{image_stem}][{q_name}]"
 
-        # 保存 YOLO 原始检出
+        # 保存 YOLO 原始检出（在原图上裁剪）
         crop_and_save_traffic_lights(
             q_img,
             raw,
@@ -109,33 +125,16 @@ def run(
             prefix=_prefix,
         )
 
-        # 空间过滤：上半区域 + 水平边缘（内部保存被剔除的裁剪图）
-        center_detections, _, _ = filter_spatial(
-            raw,
-            h,
-            w,
-            image=q_img,
-            upper_ratio=0.5,
-            edge_ratio=0.20,
-            label=_label,
-            save_dir=filter_save_dir,
-            prefix=_prefix,
-        )
-
-        if not center_detections:
-            return raw, []
-
         logger.debug(
-            f"[{image_stem}][{q_name}] YOLO检出 {len(center_detections)} 个: "
+            f"[{image_stem}][{q_name}] YOLO检出 {len(raw)} 个: "
             + ", ".join(
-                f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})"
-                for d in center_detections
+                f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})" for d in raw
             )
         )
 
         # 正/背面分类（内部保存被剔除的背面裁剪图）
         vehicle_detections, _ = classify_and_filter_back(
-            center_detections,
+            raw,
             q_img,
             label=_label,
             save_dir=filter_save_dir,
@@ -213,6 +212,23 @@ def run(
         stats.vehicle += len(shared_merged)
 
         logger.debug(f"[{image_stem}][{name}] 保存 vehicle={len(shared_merged)}")
+
+    # 压缩象限图到 1080p（减少后续视觉模型 token 消耗）
+    compress_quadrants_to_1080p(quadrants_dir)
+
+    # 兜底：如果 crops 不足 3 个，用裁剪区域图填充到 fail 目录
+    crops_path = Path(crops_dir)
+    crop_files = list(crops_path.glob("*.jpg")) if crops_path.exists() else []
+    if len(crop_files) < 3:
+        # 兜底：crops 不足 3 个时，用裁剪区域图压缩到 1080p 后填充到 crops 目录
+        crops_path.mkdir(parents=True, exist_ok=True)
+        cropped_path = Path(cropped_dir)
+        for cf in sorted(cropped_path.glob("*.jpg")):
+            dest = crops_path / f"fallback_{cf.name}"
+            result = compress_image_to_1080p(cf, dest)
+            if result is None:
+                shutil.copy2(cf, dest)
+            logger.debug(f"[{image_stem}] 兜底保存裁剪区域图: {dest}")
 
     return stats
 

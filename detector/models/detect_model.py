@@ -49,6 +49,29 @@ class Detection(BaseModel):
     def height(self) -> float:
         return self.y2 - self.y1
 
+    def shift(self, dx: float = 0, dy: float = 0) -> "Detection":
+        """返回坐标偏移后的新 Detection 实例。
+
+        用于将裁剪区域内的检测坐标映射回原图坐标。
+
+        Args:
+            dx: X 方向偏移量（像素）。
+            dy: Y 方向偏移量（像素）。
+
+        Returns:
+            偏移后的新 Detection 实例。
+        """
+        return self.model_copy(
+            update={
+                "bbox": [
+                    self.bbox[0] + dx,
+                    self.bbox[1] + dy,
+                    self.bbox[2] + dx,
+                    self.bbox[3] + dy,
+                ]
+            }
+        )
+
 
 class TrafficLightDetector:
     """红绿灯检测器，封装 YOLO 模型的加载与推理。
