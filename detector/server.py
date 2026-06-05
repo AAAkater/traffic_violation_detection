@@ -8,8 +8,6 @@
     GET  /health — 健康检查
 """
 
-from __future__ import annotations
-
 import io
 import shutil
 import tempfile

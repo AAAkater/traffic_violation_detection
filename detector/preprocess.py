@@ -1,7 +1,5 @@
 """预处理核心逻辑 — 将原始图片按象限裁剪并组织为检测所需的目录结构。"""
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 
