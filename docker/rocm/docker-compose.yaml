@@ -1,0 +1,30 @@
+services:
+  traffic-violation-detection:
+    build:
+      context: ../..
+      dockerfile: docker/rocm/Dockerfile
+    image: traffic-violation-detection:rocm
+    container_name: tvd-rocm
+    ports:
+      - "8111:8111"
+    volumes:
+      # 挂载模型权重目录（YOLO 模型等）
+      - ../../models:/app/models:ro
+      # 挂载 .env 配置
+      - ../../.env:/app/.env:ro
+    environment:
+      - MODEL_PATH=/app/models/YOLO26/best.pt
+    devices:
+      # AMD GPU 设备
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8111/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

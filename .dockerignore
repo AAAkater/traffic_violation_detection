@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+
+# Logs & output
+logs/
+output/
+
+# Assets & data (large files)
+assets/
+models/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker/
+
+# Misc
+*.md
+.python-version

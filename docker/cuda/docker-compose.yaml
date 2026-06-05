@@ -1,0 +1,31 @@
+services:
+  traffic-violation-detection:
+    build:
+      context: ../..
+      dockerfile: docker/cuda/Dockerfile
+    image: traffic-violation-detection:cuda
+    container_name: tvd-cuda
+    ports:
+      - "8111:8111"
+    volumes:
+      # 挂载模型权重目录（YOLO 模型等）
+      - ../../models:/app/models:ro
+      # 挂载 .env 配置
+      - ../../.env:/app/.env:ro
+    environment:
+      - MODEL_PATH=/app/models/YOLO26/best.pt
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8111/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
