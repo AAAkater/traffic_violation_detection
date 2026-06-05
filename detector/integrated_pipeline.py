@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
 from pathlib import Path
 
 from tqdm import tqdm
@@ -30,10 +29,15 @@ def build_judge_task(
 ) -> JudgeTask | None:
     """从 pipeline 输出的样本目录构建 JudgeTask。
 
-    目录结构预期：
+    目录结构预期（由 preprocess.py + run() 生成）：
         sample_dir/
-        ├── quadrants/quadrant_左上.jpg, quadrant_右上.jpg, ...
-        ├── crops/traffic_light_左上_*.jpg, ...
+        ├── cropped/topleft.jpg, topright.jpg, bottomleft.jpg
+        ├── tags/
+        │   ├── bottomright.jpg
+        │   ├── topleft_det.jpg
+        │   ├── topright_det.jpg
+        │   └── bottomleft_det.jpg
+        └── quadrants/quadrant_左上.jpg, quadrant_右上.jpg, ...
 
     Args:
         sample_id: 样本唯一标识。
@@ -44,10 +48,10 @@ def build_judge_task(
     """
     root = Path(sample_dir)
     quadrant_images: dict[str, str] = {}
-    crop_images: dict[str, str] = {}
+    annotated_images: dict[str, str] = {}
 
-    for q in ("左上", "右上", "左下"):
-        # 象限图
+    for q, eng in [("左上", "topleft"), ("右上", "topright"), ("左下", "bottomleft")]:
+        # 象限图（由 run() 从 cropped/ 复制到 quadrants/）
         q_path = root / "quadrants" / f"quadrant_{q}.jpg"
         if q_path.exists():
             quadrant_images[q] = str(q_path)
@@ -55,25 +59,15 @@ def build_judge_task(
             logger.warning(f"[judge] 缺少象限图: {q_path}")
             return None
 
-        # 裁剪图：优先匹配 traffic_light_，其次匹配 fallback_
-        crops_dir = root / "crops"
-        if crops_dir.exists():
-            matches = sorted(crops_dir.glob(f"traffic_light_{q}_*.jpg"))
-            if not matches:
-                # 兜底文件：fallback_左上.jpg
-                fallback = crops_dir / f"fallback_{q}.jpg"
-                if fallback.exists():
-                    matches = [fallback]
-            if matches:
-                crop_images[q] = str(matches[0])
-            else:
-                logger.warning(f"[judge] 缺少裁剪图: {q} in {crops_dir}")
-                return None
+        # 标注图：在象限图上画了检测框的图片
+        det_path = root / "tags" / f"{eng}_det.jpg"
+        if det_path.exists():
+            annotated_images[q] = str(det_path)
         else:
-            logger.warning(f"[judge] 缺少 crops 目录: {crops_dir}")
+            logger.warning(f"[judge] 缺少标注图: {det_path}")
             return None
 
-    # 嫌疑车辆图（右下象限）
+    # 嫌疑车辆图（右下象限，由 run() 从 tags/ 复制到 quadrants/）
     suspect_path = root / "quadrants" / "quadrant_右下.jpg"
     if not suspect_path.exists():
         logger.warning(f"[judge] 缺少嫌疑车辆图: {suspect_path}")
@@ -83,7 +77,7 @@ def build_judge_task(
         sample_id=sample_id,
         sample_dir=sample_dir,
         quadrant_images=quadrant_images,
-        crop_images=crop_images,
+        annotated_images=annotated_images,
         suspect_image=str(suspect_path),
     )
 
@@ -115,7 +109,7 @@ async def _judge_one(
         try:
             result: ViolationResult = await client.judge_violation(
                 quadrant_images=task.quadrant_images,
-                crop_images=task.crop_images,
+                annotated_images=task.annotated_images,
                 suspect_image=task.suspect_image,
             )
             task.status = "done"
@@ -143,54 +137,48 @@ async def _judge_one(
 
 
 async def _detect_producer(
-    dataset_dir: str,
+    preprocessed_dir: str,
     model_path: str,
     conf_threshold: float,
-    output_dir: str,
     queue: asyncio.Queue[JudgeTask | None],
     pbar: tqdm | None = None,
 ) -> None:
-    """检测生产者：逐张处理图片，完成后将 JudgeTask 放入队列。
+    """检测生产者：逐个处理预处理后的样本目录，完成后将 JudgeTask 放入队列。
 
     检测完成后向队列放入 None 作为结束信号。
 
     Args:
-        dataset_dir: 图片文件夹路径。
+        preprocessed_dir: 预处理后的输出根目录（由 preprocess.py 生成）。
         model_path: YOLO 模型权重路径。
         conf_threshold: YOLO 检测置信度阈值。
-        output_dir: 输出根目录。
         queue: 生产者-消费者队列。
         pbar: 可选的进度条。
     """
-    dataset_path = Path(dataset_dir)
-    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-    images = sorted(
-        p for p in dataset_path.iterdir() if p.suffix.lower() in image_extensions
+    base_path = Path(preprocessed_dir)
+    sample_dirs = sorted(
+        d for d in base_path.iterdir() if d.is_dir() and (d / "cropped").is_dir()
     )
 
-    if not images:
-        logger.warning(f"未找到图片文件: {dataset_dir}")
+    if not sample_dirs:
+        logger.warning(f"未找到包含 cropped/ 的样本目录: {preprocessed_dir}")
         await queue.put(None)
         return
 
-    logger.info(f"=== 检测开始，共 {len(images)} 张 ===")
+    logger.info(f"=== 检测开始，共 {len(sample_dirs)} 个样本 ===")
 
-    for img_path in images:
-        stem = img_path.stem
-        sample_dir = f"{output_dir}/{stem}"
+    for sample_dir in sample_dirs:
+        stem = sample_dir.name
 
         # 在线程池中执行同步检测
         await asyncio.to_thread(
             run,
-            image_path=str(img_path),
+            sample_dir=str(sample_dir),
             model_path=model_path,
             conf_threshold=conf_threshold,
-            base_output_dir=output_dir,
-            image_stem=stem,
         )
 
         # 检测完成后尝试构建 JudgeTask
-        task = build_judge_task(stem, sample_dir)
+        task = build_judge_task(stem, str(sample_dir))
         if task is not None:
             await queue.put(task)
             logger.debug(f"[producer] 入队: {stem}")
@@ -265,11 +253,10 @@ async def _judge_consumer(
 
 
 def run_pipeline(
-    dataset_dir: str,
+    preprocessed_dir: str,
     model_path: str,
     *,
     conf_threshold: float = 0.5,
-    output_dir: str | None = None,
     # 判定模块参数
     judge: bool = True,
     judge_model: str = "gpt-4o",
@@ -279,15 +266,15 @@ def run_pipeline(
 ) -> list[JudgeResult]:
     """执行检测 + 判定整合流水线。
 
+    先由 preprocess.py 预处理图片，再对本模块执行检测 + 判定。
     检测模块作为生产者（快），每完成一个样本就产出 JudgeTask 放入队列；
     判定模块作为消费者（慢），以指定并发数从队列中取任务并执行。
     两者通过 asyncio.Queue 并发运行，实现流水线式处理。
 
     Args:
-        dataset_dir: 图片文件夹路径。
+        preprocessed_dir: 预处理后的输出根目录（由 preprocess.py 生成）。
         model_path: YOLO 模型权重路径。
         conf_threshold: YOLO 检测置信度阈值。
-        output_dir: 输出根目录。若为 None，自动生成带时间戳的路径。
         judge: 是否执行判定步骤。为 False 时仅做检测。
         judge_model: 判定模型名称。
         judge_base_url: 判定 API 基础 URL。
@@ -297,21 +284,16 @@ def run_pipeline(
     Returns:
         判定结果列表（如果 judge=False 则为空列表）。
     """
-    if output_dir is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = f"./output/{ts}"
-
-    logger.info(f"=== 整合流水线开始，输出: {output_dir} ===")
+    logger.info(f"=== 整合流水线开始，目录: {preprocessed_dir} ===")
 
     if not judge:
         # 仅检测模式：使用原有 run_batch
         from detector.pipeline import run_batch
 
         run_batch(
-            dataset_dir=dataset_dir,
+            preprocessed_dir=preprocessed_dir,
             model_path=model_path,
             conf_threshold=conf_threshold,
-            output_dir=output_dir,
         )
         logger.info("判定步骤已跳过 (judge=False)")
         return []
@@ -325,36 +307,33 @@ def run_pipeline(
 
     results = asyncio.run(
         _run_pipeline_concurrent(
-            dataset_dir=dataset_dir,
+            preprocessed_dir=preprocessed_dir,
             model_path=model_path,
             conf_threshold=conf_threshold,
-            output_dir=output_dir,
             client=client,
             judge_concurrency=judge_concurrency,
         )
     )
 
     # ---- 保存判定结果 ----
-    _save_results(results, output_dir)
+    _save_results(results, preprocessed_dir)
 
     return results
 
 
 async def _run_pipeline_concurrent(
-    dataset_dir: str,
+    preprocessed_dir: str,
     model_path: str,
     conf_threshold: float,
-    output_dir: str,
     client: VisionClient,
     judge_concurrency: int,
 ) -> list[JudgeResult]:
     """并发运行检测生产者和判定消费者。
 
     Args:
-        dataset_dir: 图片文件夹路径。
+        preprocessed_dir: 预处理后的输出根目录（由 preprocess.py 生成）。
         model_path: YOLO 模型权重路径。
         conf_threshold: YOLO 检测置信度阈值。
-        output_dir: 输出根目录。
         client: VisionClient 实例。
         judge_concurrency: 判定并发数。
 
@@ -371,10 +350,9 @@ async def _run_pipeline_concurrent(
     # 生产者和消费者并发运行
     producer_task = asyncio.create_task(
         _detect_producer(
-            dataset_dir=dataset_dir,
+            preprocessed_dir=preprocessed_dir,
             model_path=model_path,
             conf_threshold=conf_threshold,
-            output_dir=output_dir,
             queue=queue,
             pbar=det_pbar,
         )

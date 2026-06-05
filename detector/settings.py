@@ -1,7 +1,7 @@
 """全局配置 — 使用 pydantic-settings 管理所有参数。
 
 支持环境变量和 .env 文件，所有字段均可通过环境变量覆盖，
-环境变量名规则：前缀 TRAFFIC_ + 大写字段名，如 TRAFFIC_DATASET_DIR。
+环境变量名规则：前缀 TRAFFIC_ + 大写字段名，如 TRAFFIC_PREPROCESSED_DIR。
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,13 +63,8 @@ class JudgeSettings(BaseSettings):
 class PipelineSettings(BaseSettings):
     """整合流水线配置（检测 + 判定）。"""
 
-    # dataset_dir: str = "/home/mopo3/code/datasets/违法"
-    dataset_dir: str = "/home/mopo3/code/python/traffic_violation_detection/data"
-
-    """图片文件夹路径。"""
-
-    output_dir: str | None = None
-    """输出根目录。为 None 时自动生成带时间戳的路径。"""
+    preprocessed_dir: str = "/home/mopo3/code/python/traffic_violation_detection/output"
+    """预处理后的输出根目录（由 preprocess.py 生成）。"""
 
     detection: DetectionSettings = DetectionSettings()
     """检测模块配置。"""

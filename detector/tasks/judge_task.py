@@ -12,14 +12,12 @@ class JudgeTask(BaseModel):
     """
 
     sample_id: str = Field(description="样本唯一标识，如图片文件名（不含扩展名）")
-    sample_dir: str = Field(
-        description="样本输出目录，包含 quadrants/、crops/ 等子目录"
-    )
+    sample_dir: str = Field(description="样本输出目录，包含 quadrants/、tags/ 等子目录")
     quadrant_images: dict[str, str] = Field(
         description="象限名 → 象限图片路径，如 {'左上': '/path/左上.jpg'}"
     )
-    crop_images: dict[str, str] = Field(
-        description="象限名 → 该象限裁剪出的交通灯图片路径"
+    annotated_images: dict[str, str] = Field(
+        description="象限名 → 该象限标注了检测框的图片路径"
     )
     suspect_image: str = Field(description="嫌疑车辆图片路径（右下象限）")
     status: Literal["pending", "judging", "done", "failed"] = Field(

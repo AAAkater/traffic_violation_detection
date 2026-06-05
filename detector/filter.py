@@ -6,7 +6,6 @@ import numpy as np
 
 from detector.models.detect_model import Detection
 from detector.utils import logger
-from detector.utils.image_tools import crop_and_save_traffic_lights
 
 
 def filter_spatial(
@@ -17,8 +16,6 @@ def filter_spatial(
     upper_ratio: float = 0.5,
     edge_ratio: float = 0.20,
     label: str = "",
-    save_dir: str = "",
-    prefix: str = "traffic_light",
 ) -> tuple[list[Detection], list[Detection], list[Detection]]:
     """按空间位置过滤检测框：上半区域 + 水平边缘。
 
@@ -29,12 +26,10 @@ def filter_spatial(
         detections: 检测结果列表。
         image_height: 图片高度（像素）。
         image_width: 图片宽度（像素）。
-        image: 原始图像（BGR 格式），用于保存被剔除的裁剪图。为 None 时不保存。
+        image: 原始图像（BGR 格式），当前未使用，保留参数以兼容调用方。
         upper_ratio: 判定"上部"的占比线，默认 0.5 即上半 50%。
         edge_ratio: 水平边缘剔除比例，默认 0.20 即左右各 20%。
         label: 日志前缀，如 "[image_stem][q_name]"。
-        save_dir: 保存根目录，被剔除的裁剪图将保存到其子目录。为空时不保存。
-        prefix: 保存文件名前缀。
 
     Returns:
         (kept, removed_lower, removed_edge): 保留的检测框 + 下半区域剔除 + 边缘剔除。
@@ -65,22 +60,5 @@ def filter_spatial(
             f"{prefix_log}剔除 {len(removed_edge)} 个边缘框(疑似行人灯), "
             f"保留 {len(kept)} 个中间区域"
         )
-
-    # 保存被剔除的裁剪图
-    if image is not None and save_dir:
-        if removed_lower:
-            crop_and_save_traffic_lights(
-                image,
-                removed_lower,
-                output_dir=f"{save_dir}/filtered_lower",
-                prefix=prefix,
-            )
-        if removed_edge:
-            crop_and_save_traffic_lights(
-                image,
-                removed_edge,
-                output_dir=f"{save_dir}/filtered_edge",
-                prefix=prefix,
-            )
 
     return kept, removed_lower, removed_edge

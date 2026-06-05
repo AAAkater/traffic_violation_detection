@@ -1,25 +1,44 @@
-"""检测流水线 — 编排图片分割、检测、合并、分类、保存全流程。"""
+"""检测流水线 — 编排检测、空间过滤、画框保存全流程。
+
+图片预处理（象限分割）由 preprocess.py 独立完成，本模块直接读取
+预处理后的 cropped/ 子目录，不再执行分割操作。
+
+检测后在象限图上画框，保存到 tags/ 目录，供 LLM 判定使用。
+"""
 
 import shutil
-from datetime import datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-from detector.classifier import classify_and_filter_back
-from detector.merger import merge_or_expand
+from detector.filter import filter_spatial
 from detector.models import TrafficLightDetector
 from detector.models.detect_model import Detection
-from detector.utils import image_tools, logger
-from detector.utils.image_tools import (
-    compress_image_to_1080p,
-    compress_quadrants_to_1080p,
-    crop_and_save_traffic_lights,
-    crop_upper_region,
-    save_cropped_region,
-)
+from detector.utils import logger
+from detector.utils.image_tools import compress_quadrants_to_1080p
+
+# 预处理输出的象限文件名 → 中文象限名
+QUADRANT_NAME_MAP: dict[str, str] = {
+    "topleft": "左上",
+    "topright": "右上",
+    "bottomleft": "左下",
+}
+
+# 中文象限名 → 预处理文件名（反向映射）
+QUADRANT_NAME_RMAP: dict[str, str] = {v: k for k, v in QUADRANT_NAME_MAP.items()}
+
+# 检测顺序：依次尝试，直到成功检出
+DETECT_ORDER: list[str] = ["左上", "右上", "左下"]
+
+# 检测框颜色（BGR）
+BOX_COLOR = (0, 255, 0)  # 绿色
+BOX_THICKNESS = 3
+FONT_SCALE = 0.8
+FONT_COLOR = (255, 255, 255)  # 白色
+FONT_THICKNESS = 2
 
 
 class DetectionStats(BaseModel):
@@ -29,101 +48,190 @@ class DetectionStats(BaseModel):
     vehicle: int = Field(default=0, description="正面机动车灯数量")
 
 
-def run(
-    image_path: str,
-    model_path: str,
-    conf_threshold: float = 0.5,
-    base_output_dir: str | None = None,
-    image_stem: str | None = None,
-) -> DetectionStats:
-    """执行完整的红绿灯检测流水线。
-
-    1. 将大图分割为 4 个子图并保存
-    2. 裁剪子图上半区域（去掉下半 + 左右边缘）
-    3. 对裁剪区域执行 YOLO 检测，坐标映射回原图
-    4. 分类正/背面并保存
-    5. 合并同一灯杆上的检测框
+def _draw_detections(
+    img: np.ndarray,
+    detections: list[Detection],
+    *,
+    color: tuple[int, int, int] = BOX_COLOR,
+    thickness: int = BOX_THICKNESS,
+    font_scale: float = FONT_SCALE,
+    font_color: tuple[int, int, int] = FONT_COLOR,
+    font_thickness: int = FONT_THICKNESS,
+) -> np.ndarray:
+    """在图片上绘制检测框和标签，返回标注后的图片副本。
 
     Args:
-        image_path: 输入图片路径。
+        img: 原始图像（BGR 格式 numpy 数组）。
+        detections: 检测结果列表。
+        color: 框线颜色 (B, G, R)。
+        thickness: 框线粗细。
+        font_scale: 字体大小。
+        font_color: 字体颜色 (B, G, R)。
+        font_thickness: 字体粗细。
+
+    Returns:
+        标注后的图片副本（不修改原图）。
+    """
+    annotated = img.copy()
+    for det in detections:
+        x1, y1, x2, y2 = int(det.x1), int(det.y1), int(det.x2), int(det.y2)
+        label = f"{det.class_name} {det.confidence:.2f}"
+
+        # 画检测框
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness)
+
+        # 计算标签背景大小
+        (tw, th), baseline = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness
+        )
+        # 标签背景放在框上方
+        label_y = max(y1 - 5, th + 5)
+        cv2.rectangle(
+            annotated,
+            (x1, label_y - th - 5),
+            (x1 + tw + 4, label_y + baseline),
+            color,
+            cv2.FILLED,
+        )
+        cv2.putText(
+            annotated,
+            label,
+            (x1 + 2, label_y - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            font_color,
+            font_thickness,
+        )
+    return annotated
+
+
+def _load_quadrants(
+    sample_dir: Path,
+) -> list[tuple[str, np.ndarray]]:
+    """从预处理目录中加载象限图片。
+
+    预处理目录结构：
+        sample_dir/
+        ├── cropped/
+        │   ├── topleft.jpg
+        │   ├── topright.jpg
+        │   └── bottomleft.jpg
+        └── tags/
+            └── bottomright.jpg
+
+    Args:
+        sample_dir: 预处理后的样本目录路径。
+
+    Returns:
+        [(中文象限名, 图片数组), ...]，仅包含成功加载的象限。
+    """
+    cropped_dir = sample_dir / "cropped"
+    if not cropped_dir.is_dir():
+        raise FileNotFoundError(f"缺少 cropped/ 目录: {cropped_dir}")
+
+    quadrants: list[tuple[str, np.ndarray]] = []
+    for eng_name, cn_name in QUADRANT_NAME_MAP.items():
+        # 支持 .jpg / .png 等常见扩展名
+        for ext in (".jpg", ".jpeg", ".png", ".bmp"):
+            q_path = cropped_dir / f"{eng_name}{ext}"
+            if q_path.exists():
+                img = cv2.imread(str(q_path))
+                if img is not None:
+                    quadrants.append((cn_name, img))
+                    break
+        else:
+            logger.warning(f"缺少象限图: {cropped_dir / eng_name}")
+
+    return quadrants
+
+
+def run(
+    sample_dir: str,
+    model_path: str,
+    conf_threshold: float = 0.5,
+) -> DetectionStats:
+    """对预处理后的样本目录执行红绿灯检测流水线。
+
+    调用前需先运行 preprocess.py 生成目录结构：
+        sample_dir/
+        ├── <原图>.jpg
+        ├── cropped/
+        │   ├── topleft.jpg
+        │   ├── topright.jpg
+        │   └── bottomleft.jpg
+        └── tags/
+            └── bottomright.jpg
+
+    流程：
+    1. 从 cropped/ 加载象限图片
+    2. 依次在 左上 → 右上 → 左下 上执行 YOLO 检测
+    3. 空间过滤
+    4. 在象限图上画检测框，保存到 tags/ 目录
+    5. 其余象限复用检测 bbox 画框保存
+
+    Args:
+        sample_dir: 预处理后的样本目录路径（由 preprocess.py 生成）。
         model_path: YOLO 模型权重路径。
         conf_threshold: YOLO 检测置信度阈值。
-        base_output_dir: 输出根目录。若为 None，自动生成带时间戳的路径。
-        image_stem: 图片标识名（不含扩展名），用于命名输出子目录。
 
     Returns:
         DetectionStats 统计信息。
     """
     detector = TrafficLightDetector(model_path, conf_threshold=conf_threshold)
+    sample_path = Path(sample_dir)
+    image_stem = sample_path.name
 
-    if base_output_dir is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_output_dir = f"./output/{ts}"
-        logger.info(f"本次检测时间戳: {ts}")
+    # 1. 从预处理目录加载象限图片
+    quadrants = _load_quadrants(sample_path)
+    if not quadrants:
+        logger.warning(f"[{image_stem}] 未找到任何象限图，跳过")
+        return DetectionStats()
 
-    if image_stem is None:
-        image_stem = Path(image_path).stem
+    # 保存象限图到 quadrants/ 目录（供后续判定模块使用）
+    quadrants_dir = str(sample_path / "quadrants")
+    Path(quadrants_dir).mkdir(parents=True, exist_ok=True)
+    for cn_name, q_img in quadrants:
+        cv2.imwrite(str(Path(quadrants_dir) / f"quadrant_{cn_name}.jpg"), q_img)
 
-    quadrants_dir = f"{base_output_dir}/{image_stem}/quadrants"
-    cropped_dir = f"{base_output_dir}/{image_stem}/cropped"
-    crops_all_dir = f"{base_output_dir}/{image_stem}/crops_all"
-    crops_dir = f"{base_output_dir}/{image_stem}/crops"
-    # 各筛选步骤被踢掉的图片存放根目录
-    filter_save_dir = f"{base_output_dir}/{image_stem}"
-
-    # 1. 分割
-    quadrants = image_tools.split_image_into_4(image_path)
-    image_tools.save_quadrants(quadrants, output_dir=quadrants_dir)
+    # 保存右下角（嫌疑车辆图）到 quadrants/ 目录
+    tags_dir = sample_path / "tags"
+    if tags_dir.is_dir():
+        for ext in (".jpg", ".jpeg", ".png", ".bmp"):
+            br_path = tags_dir / f"bottomright{ext}"
+            if br_path.exists():
+                shutil.copy2(br_path, Path(quadrants_dir) / "quadrant_右下.jpg")
+                break
 
     stats = DetectionStats()
 
     # ------------------------------------------------------------------
     # 2. 依次在 左上 → 右上 → 左下 上执行完整检测流水线，
-    #    直到某个象限成功检出并合并为止。
+    #    直到某个象限成功检出为止。
     #    三者为同一摄像头同一角度不同时间的拍照，交通灯位置相同，
-    #    检出成功后，其余象限直接复用合并 bbox 裁剪。
+    #    检出成功后，其余象限直接复用检测 bbox 画框。
     # ------------------------------------------------------------------
 
     def _detect_quadrant(
         q_name: str,
         q_img: np.ndarray,
     ) -> tuple[list[Detection], list[Detection]]:
-        """对单个象限执行完整管线（裁剪 → YOLO → 分类 → 合并）。
+        """对单个象限执行完整管线（YOLO → 空间过滤）。
 
-        先裁剪上半区域再送入 YOLO，减少检测范围、提高速度和准确性。
-        各步骤的保存在函数内部完成。
+        直接对整个象限图执行 YOLO 检测，然后只保留中上部分的标签。
 
         Returns:
-            (raw, merged): YOLO 原始检出（坐标已映射回原图）+ 合并后的机动车灯。
+            (raw, vehicle): YOLO 原始检出 + 空间过滤后的机动车灯。
         """
         logger.debug(f"[{image_stem}][{q_name}] 检测中…")
 
-        # 先裁剪上半区域（去掉下半 + 左右边缘），再送入 YOLO
-        cropped, offset_y, offset_x = crop_upper_region(
-            q_img, upper_ratio=0.5, edge_ratio=0.20
-        )
-        save_cropped_region(cropped, f"{cropped_dir}/{q_name}.jpg")
-
-        raw = detector.detect(cropped)
+        raw = detector.detect(q_img)
 
         if not raw:
             logger.debug(f"[{image_stem}][{q_name}] 检出 0 个")
             return raw, []
 
-        # 将裁剪区域内的坐标映射回原图坐标
-        raw = [d.shift(dx=offset_x, dy=offset_y) for d in raw]
-
         h, w = q_img.shape[:2]
-        _prefix = f"traffic_light_{q_name}"
         _label = f"[{image_stem}][{q_name}]"
-
-        # 保存 YOLO 原始检出（在原图上裁剪）
-        crop_and_save_traffic_lights(
-            q_img,
-            raw,
-            output_dir=crops_all_dir,
-            prefix=_prefix,
-        )
 
         logger.debug(
             f"[{image_stem}][{q_name}] YOLO检出 {len(raw)} 个: "
@@ -132,157 +240,136 @@ def run(
             )
         )
 
-        # 正/背面分类（内部保存被剔除的背面裁剪图）
-        vehicle_detections, _ = classify_and_filter_back(
+        # 空间过滤：只保留中上部分的检测框
+        upper_detections, removed_lower, removed_edge = filter_spatial(
             raw,
-            q_img,
+            image_height=h,
+            image_width=w,
+            image=q_img,
+            upper_ratio=0.5,
+            edge_ratio=0.20,
             label=_label,
-            save_dir=filter_save_dir,
-            prefix=_prefix,
         )
+
+        if not upper_detections:
+            logger.debug(f"[{image_stem}][{q_name}] 空间过滤后 0 个中上区域框")
+            return raw, []
+
+        # 空间过滤后的结果直接作为机动车灯检测结果
+        vehicle_detections = upper_detections
 
         if not vehicle_detections:
             return raw, []
 
-        # 合并 + 扩大
-        merged = merge_or_expand(vehicle_detections, w, h)
-        if not merged:
-            logger.debug(
-                f"[{image_stem}][{q_name}] 合并失败({len(vehicle_detections)} 个框不在同一水平线), 视为检测失败"
-            )
-        elif len(merged) < len(vehicle_detections):
-            logger.debug(
-                f"[{image_stem}][{q_name}] 合并: {len(vehicle_detections)} → {len(merged)} 组"
-            )
-
-        # 保存合并后的最终结果
-        if merged:
-            crop_and_save_traffic_lights(
-                q_img,
-                merged,
-                output_dir=crops_dir,
-                prefix=_prefix,
-            )
-
-        return raw, merged
+        return raw, vehicle_detections
 
     # 依次尝试 左上 → 右上 → 左下，直到成功检出
     primary_name: str | None = None
-    shared_merged: list[Detection] = []
+    shared_detections: list[Detection] = []
 
     for q_name, q_img in quadrants:
-        if q_name == "右下":
-            continue  # 右下不同角度，跳过
-        raw, merged = _detect_quadrant(q_name, q_img)
-        if merged:
+        if q_name not in DETECT_ORDER:
+            continue  # 跳过非检测象限
+        raw, vehicle = _detect_quadrant(q_name, q_img)
+        if vehicle:
             primary_name = q_name
-            shared_merged = merged
+            shared_detections = vehicle
             stats.all += len(raw)
-            stats.vehicle += len(merged)
+            stats.vehicle += len(vehicle)
             logger.debug(
                 f"[{image_stem}] 检出成功象限: {q_name}, "
-                f"all={len(raw)} vehicle={len(merged)}"
+                f"all={len(raw)} vehicle={len(vehicle)}"
             )
             break
         else:
             logger.debug(f"[{image_stem}][{q_name}] 未检出，尝试下一象限")
 
-    # 其余象限复用合并 bbox 直接裁剪（左上/右上/左下 同角度，右下不同角度跳过）
+    # ------------------------------------------------------------------
+    # 3. 在象限图上画检测框，保存到 tags/ 目录
+    # ------------------------------------------------------------------
+    tags_out_dir = sample_path / "tags"
+    tags_out_dir.mkdir(parents=True, exist_ok=True)
+
     for name, sub_img in quadrants:
-        if name == "右下":
+        if name not in DETECT_ORDER:
             continue  # 右下不同角度，跳过
 
-        if not shared_merged:
-            logger.debug(f"[{image_stem}][{name}] 无共享合并 bbox，跳过")
-            continue
+        eng_name = QUADRANT_NAME_RMAP[name]
 
-        if name == primary_name:
-            continue  # 已经保存过，跳过
-
-        logger.debug(
-            f"[{image_stem}][{name}] 复用 {primary_name} 的 {len(shared_merged)} 个合并 bbox 裁剪"
-        )
-
-        crop_and_save_traffic_lights(
-            sub_img,
-            shared_merged,
-            output_dir=crops_dir,
-            prefix=f"traffic_light_{name}",
-        )
-        stats.vehicle += len(shared_merged)
-
-        logger.debug(f"[{image_stem}][{name}] 保存 vehicle={len(shared_merged)}")
+        if shared_detections:
+            # 在象限图上画检测框
+            annotated = _draw_detections(sub_img, shared_detections)
+            out_path = tags_out_dir / f"{eng_name}_det.jpg"
+            cv2.imwrite(str(out_path), annotated)
+            logger.debug(f"[{image_stem}][{name}] 保存标注图: {out_path}")
+        else:
+            # 无检测结果，直接保存原图到 tags/
+            out_path = tags_out_dir / f"{eng_name}_det.jpg"
+            cv2.imwrite(str(out_path), sub_img)
+            logger.debug(f"[{image_stem}][{name}] 无检测结果，保存原图: {out_path}")
 
     # 压缩象限图到 1080p（减少后续视觉模型 token 消耗）
     compress_quadrants_to_1080p(quadrants_dir)
-
-    # 兜底：如果 crops 不足 3 个，用裁剪区域图填充到 fail 目录
-    crops_path = Path(crops_dir)
-    crop_files = list(crops_path.glob("*.jpg")) if crops_path.exists() else []
-    if len(crop_files) < 3:
-        # 兜底：crops 不足 3 个时，用裁剪区域图压缩到 1080p 后填充到 crops 目录
-        crops_path.mkdir(parents=True, exist_ok=True)
-        cropped_path = Path(cropped_dir)
-        for cf in sorted(cropped_path.glob("*.jpg")):
-            dest = crops_path / f"fallback_{cf.name}"
-            result = compress_image_to_1080p(cf, dest)
-            if result is None:
-                shutil.copy2(cf, dest)
-            logger.debug(f"[{image_stem}] 兜底保存裁剪区域图: {dest}")
 
     return stats
 
 
 def run_batch(
-    dataset_dir: str,
+    preprocessed_dir: str,
     model_path: str,
     conf_threshold: float = 0.5,
-    output_dir: str | None = None,
 ) -> None:
-    """对文件夹下所有图片批量执行红绿灯检测。
+    """对预处理后的目录批量执行红绿灯检测。
+
+    预处理目录由 preprocess.py 生成，结构如下：
+        preprocessed_dir/
+        ├── 710710/
+        │   ├── 710710.jpg
+        │   ├── cropped/
+        │   │   ├── topleft.jpg
+        │   │   ├── topright.jpg
+        │   │   └── bottomleft.jpg
+        │   └── tags/
+        │       └── bottomright.jpg
+        ├── 1013006/
+        │   └── ...
+        └── ...
 
     Args:
-        dataset_dir: 图片文件夹路径。
+        preprocessed_dir: 预处理后的输出根目录（由 preprocess.py 生成）。
         model_path: YOLO 模型权重路径。
         conf_threshold: YOLO 检测置信度阈值。
-        output_dir: 输出根目录。若为 None，自动生成带时间戳的路径。
     """
-    dataset_path = Path(dataset_dir)
-    if not dataset_path.is_dir():
-        logger.error(f"文件夹不存在: {dataset_dir}")
+    base_path = Path(preprocessed_dir)
+    if not base_path.is_dir():
+        logger.error(f"文件夹不存在: {preprocessed_dir}")
         return
 
-    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-    images = sorted(
-        p for p in dataset_path.iterdir() if p.suffix.lower() in image_extensions
+    # 筛选包含 cropped/ 子目录的样本目录
+    sample_dirs = sorted(
+        d for d in base_path.iterdir() if d.is_dir() and (d / "cropped").is_dir()
     )
 
-    if not images:
-        logger.warning(f"未找到图片文件: {dataset_dir}")
+    if not sample_dirs:
+        logger.warning(f"未找到包含 cropped/ 的样本目录: {preprocessed_dir}")
         return
 
-    if output_dir is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = f"./output/{ts}"
-
-    total = len(images)
-    logger.info(f"=== 批量检测开始，共 {total} 张，输出: {output_dir} ===")
+    total = len(sample_dirs)
+    logger.info(f"=== 批量检测开始，共 {total} 个样本，目录: {preprocessed_dir} ===")
 
     total_all = 0
     total_vehicle = 0
     total_skipped = 0
 
     # 进度条：只显示文件名和关键统计
-    pbar = tqdm(images, desc="检测", unit="img", ncols=100)
+    pbar = tqdm(sample_dirs, desc="检测", unit="img", ncols=100)
 
-    for img_path in pbar:
-        stem = img_path.stem
+    for sample_dir in pbar:
+        stem = sample_dir.name
         stats = run(
-            image_path=str(img_path),
+            sample_dir=str(sample_dir),
             model_path=model_path,
             conf_threshold=conf_threshold,
-            base_output_dir=output_dir,
-            image_stem=stem,
         )
         total_all += stats.all
         total_vehicle += stats.vehicle
@@ -298,18 +385,18 @@ def run_batch(
     summary = (
         f"\n{'=' * 50}\n"
         f"  批量检测完成\n"
-        f"  总处理: {total} 张\n"
-        f"  总检出(crops_all): {total_all} 个\n"
-        f"  正面机动车灯(crops): {total_vehicle} 个\n"
-        f"  无检出: {total_skipped} 张\n"
-        f"  结果目录: {output_dir}\n"
+        f"  总处理: {total} 个\n"
+        f"  总检出: {total_all} 个\n"
+        f"  正面机动车灯: {total_vehicle} 个\n"
+        f"  无检出: {total_skipped} 个\n"
+        f"  结果目录: {preprocessed_dir}\n"
         f"{'=' * 50}"
     )
     print(summary)
     logger.info(summary.replace("\n", " | "))
 
-    # ---- 按 crops 数量分组成败 ----
-    out_path = Path(output_dir)
+    # ---- 按 tags/ 中标注图数量分组成败 ----
+    out_path = Path(preprocessed_dir)
     success_dir = out_path / "_success"
     fail_dir = out_path / "_fail"
     success_dir.mkdir(parents=True, exist_ok=True)
@@ -320,8 +407,12 @@ def run_batch(
     for subdir in sorted(out_path.iterdir()):
         if not subdir.is_dir() or subdir.name.startswith("_"):
             continue
-        crop_files = list(subdir.glob("crops/*.jpg"))
-        if len(crop_files) == 3:
+        det_files = (
+            list((subdir / "tags").glob("*_det.jpg"))
+            if (subdir / "tags").is_dir()
+            else []
+        )
+        if len(det_files) >= 3:
             subdir.rename(success_dir / subdir.name)
             success_count += 1
         else:
