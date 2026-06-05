@@ -4,6 +4,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from detector.models.detect_model import Detection
 from detector.utils import logger
@@ -229,3 +230,42 @@ def crop_and_save_traffic_lights(
         logger.debug(f"已保存裁剪区域: {filepath}")
 
     return saved_files
+
+
+# ---------------------------------------------------------------------------
+# 单图预处理：象限裁剪
+# ---------------------------------------------------------------------------
+
+
+def preprocess_single(img: Image.Image, sample_dir: Path) -> None:
+    """将单张原始图片按宽高中点裁剪为 4 个象限并保存。
+
+    目录结构：
+        sample_dir/
+        ├── cropped/
+        │   ├── topleft.jpg      ← 左上（检测象限）
+        │   ├── topright.jpg     ← 右上（检测象限）
+        │   └── bottomleft.jpg   ← 左下（检测象限）
+        └── tags/
+            └── bottomright.jpg  ← 右下（嫌疑车辆）
+
+    Args:
+        img: 原始 PIL Image。
+        sample_dir: 输出样本目录。
+    """
+    w, h = img.size
+    mid_x, mid_y = w // 2, h // 2
+
+    cropped_dir = sample_dir / "cropped"
+    tags_dir = sample_dir / "tags"
+    cropped_dir.mkdir(parents=True, exist_ok=True)
+    tags_dir.mkdir(parents=True, exist_ok=True)
+
+    for name, box in [
+        ("topleft", (0, 0, mid_x, mid_y)),
+        ("topright", (mid_x, 0, w, mid_y)),
+        ("bottomleft", (0, mid_y, mid_x, h)),
+    ]:
+        img.crop(box).save(cropped_dir / f"{name}.jpg", quality=95)
+
+    img.crop((mid_x, mid_y, w, h)).save(tags_dir / "bottomright.jpg", quality=95)
