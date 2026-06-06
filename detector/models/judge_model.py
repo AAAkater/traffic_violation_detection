@@ -34,12 +34,8 @@ class VisionClient:
         model: str = "gpt-4o",
         base_url: str | None = None,
         api_key: str | None = None,
-        max_tokens: int = 20000,
-        temperature: float = 0.0,
     ) -> None:
         self.model = model
-        self.max_tokens = max_tokens
-        self.temperature = temperature
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     async def judge_violation(
@@ -111,8 +107,6 @@ class VisionClient:
         stream = await self._client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": content}],
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
             stream=True,
             extra_body={"enable_thinking": True},
         )

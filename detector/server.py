@@ -65,8 +65,6 @@ async def judge(file: UploadFile = File(...)):
             model=settings.judge_model,
             base_url=settings.judge_base_url,
             api_key=settings.judge_api_key,
-            max_tokens=settings.judge_max_tokens,
-            temperature=settings.judge_temperature,
         )
         result = await client.judge_violation(
             annotated_images=annotated_images,

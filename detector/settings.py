@@ -36,19 +36,6 @@ class Settings(BaseSettings):
     judge_api_key: str = ""
     """判定 API 密钥。"""
 
-    judge_max_tokens: int = 20000
-    """最大生成 token 数。"""
-
-    judge_temperature: float = 0.0
-    """生成温度。"""
-
-    judge_concurrency: int = 10
-    """判定并发数。"""
-
-    # ── 流水线 ──
-    preprocessed_dir: str = ""
-    """预处理后的输出根目录（由 preprocess.py 生成）。"""
-
 
 # 全局单例
 settings = Settings()
