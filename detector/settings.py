@@ -20,11 +20,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     # ── 检测模块 ──
-    model_path: str = ""
+    yolo_model_path: str = ""
     """YOLO 模型权重路径。"""
 
-    conf_threshold: float = 0.4
+    yolo_conf_threshold: float = 0.4
     """YOLO 检测置信度阈值。"""
+
+    yolo_device: str = "cuda"
+    """推理设备：\"cuda\" 使用 GPU，\"cpu\" 使用 CPU，\"cuda:0\" 指定具体 GPU。"""
 
     # ── 判定模块 ──
     judge_model: str = "qwen3.7-plus"
