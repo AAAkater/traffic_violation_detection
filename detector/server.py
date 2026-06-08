@@ -9,9 +9,6 @@
 """
 
 import io
-import shutil
-import tempfile
-from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from PIL import Image
@@ -27,39 +24,37 @@ app = FastAPI(title="交通违法判定服务", version="0.1.0")
 
 
 @app.post("/judge")
-async def judge(file: UploadFile = File(...)):
+async def judge(image_file: UploadFile = File(..., alias="file")):
     # 读取上传的图片
-    contents = await file.read()
-    stem = Path(file.filename or "upload").stem
+    contents = await image_file.read()
 
-    # 写入临时目录
-    tmp_root = Path(tempfile.mkdtemp(prefix="tvd_"))
     try:
-        # ── 1. 保存原图并预处理 ──
+        # ── 1. 预处理：裁剪象限（纯内存） ──
         img = Image.open(io.BytesIO(contents))
-        sample_dir = tmp_root / stem
-        preprocess_single(img, sample_dir)
+        quadrants = preprocess_single(img)
 
-        # ── 2. YOLO 检测 ──
-        detect_run(
-            sample_dir=str(sample_dir),
-            model_path=settings.model_path,
-            conf_threshold=settings.conf_threshold,
+        # ── 2. YOLO 检测（纯内存） ──
+        detect_quadrants = {
+            k: v
+            for k, v in quadrants.items()
+            if k in ("topleft", "topright", "bottomleft")
+        }
+        _stats, annotated_images = detect_run(
+            quadrant_images=detect_quadrants,
+            model_path=settings.yolo_model_path,
+            conf_threshold=settings.yolo_conf_threshold,
+            device=settings.yolo_device,
         )
 
-        # ── 3. 加载图片直接传给 LLM ──
-        root = sample_dir
-        annotated_images: list[Image.Image] = []
-        for eng in ("topleft", "topright", "bottomleft"):
-            det_path = root / "tags" / f"{eng}_det.jpg"
-            if not det_path.exists():
-                raise HTTPException(status_code=400, detail=f"缺少标注图: {det_path}")
-            annotated_images.append(Image.open(det_path))
+        # ── 3. 组装图片传给 LLM ──
+        ordered_keys = ["topleft_det", "topright_det", "bottomleft_det"]
+        annotated_list: list[Image.Image] = []
+        for key in ordered_keys:
+            if key not in annotated_images:
+                raise HTTPException(status_code=400, detail=f"缺少标注图: {key}")
+            annotated_list.append(annotated_images[key])
 
-        suspect_path = root / "tags" / "bottomright.jpg"
-        if not suspect_path.exists():
-            raise HTTPException(status_code=400, detail="缺少嫌疑车辆图")
-        suspect_image = Image.open(suspect_path)
+        suspect_image = quadrants["bottomright"]
 
         client = VisionClient(
             model=settings.judge_model,
@@ -67,7 +62,7 @@ async def judge(file: UploadFile = File(...)):
             api_key=settings.judge_api_key,
         )
         result = await client.judge_violation(
-            annotated_images=annotated_images,
+            annotated_images=annotated_list,
             suspect_image=suspect_image,
         )
 
@@ -75,16 +70,14 @@ async def judge(file: UploadFile = File(...)):
             code=0,
             msg="success",
             data=JudgeData(
-                sample_id=stem,
+                filename=image_file.filename or "upload",
                 violated=result.violated,
                 reason=result.reason,
             ),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[server] 判定失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        # 清理临时目录
-        shutil.rmtree(tmp_root, ignore_errors=True)

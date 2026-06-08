@@ -79,17 +79,29 @@ class Detection(BaseModel):
 
 
 class TrafficLightDetector:
-    """红绿灯检测器：YOLO 推理 + 空间过滤 + 画框标注。"""
+    """红绿灯检测器：YOLO 推理 + 空间过滤 + 画框标注。
 
-    def __init__(self, model_path: str, conf_threshold: float = 0.5) -> None:
+    Args:
+        model_path: YOLO 模型权重路径。
+        conf_threshold: 检测置信度阈值。
+        device: 推理设备，"cuda" / "cpu" / "cuda:0" 等，默认 None 让 YOLO 自动选择。
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        conf_threshold: float = 0.5,
+        device: str | None = None,
+    ) -> None:
         self._model = YOLO(model_path, verbose=False)
         self.conf_threshold = conf_threshold
+        self._device = device
 
     # ── YOLO 推理 ──
 
     def detect(self, source: str | np.ndarray) -> list[Detection]:
         """检测图片中的红绿灯，返回检测结果列表。"""
-        results = self._model.predict(source=source, verbose=False)
+        results = self._model.predict(source=source, verbose=False, device=self._device)
         detections: list[Detection] = []
 
         for r in results:

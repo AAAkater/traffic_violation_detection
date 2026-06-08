@@ -21,6 +21,6 @@ class Response[T](BaseModel):
 class JudgeData(BaseModel):
     """违法判定结果数据。"""
 
-    sample_id: str = Field(description="样本标识")
+    filename: str = Field(description="上传文件名")
     violated: bool = Field(description="是否闯红灯")
     reason: str = Field(default="", description="判定理由")
