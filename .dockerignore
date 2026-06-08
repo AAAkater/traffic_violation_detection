@@ -27,9 +27,10 @@ models/
 .git/
 .gitignore
 
-# Docker
-docker/
+# Docker (exclude subdirs but allow env files)
+docker/**/*
+!docker/**/.env.example
 
 # Misc
 *.md
-.python-version
+__pycache__
