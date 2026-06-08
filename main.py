@@ -29,11 +29,21 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
     contents = await image_file.read()
 
     try:
+        logger.debug("[server] ========== 开始处理请求 ==========")
+        logger.debug(
+            f"[server] 文件名: {image_file.filename}, 大小: {len(contents)} bytes"
+        )
+
         # ── 1. 预处理：裁剪象限（纯内存） ──
+        logger.debug("[server] 阶段1: 图片预处理 — 打开图像并裁剪象限...")
         img = Image.open(io.BytesIO(contents))
         quadrants = preprocess_single(img)
+        logger.debug(f"[server] 阶段1完成: 裁剪出 {len(quadrants)} 个象限")
 
         # ── 2. YOLO 检测（纯内存） ──
+        logger.debug(
+            "[server] 阶段2: YOLO 检测 — 对 top_left / top_right / bottom_left 进行目标检测..."
+        )
         detect_quadrants = {
             k: v
             for k, v in quadrants.items()
@@ -45,8 +55,12 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
             conf_threshold=settings.yolo_conf_threshold,
             device=settings.yolo_device,
         )
+        logger.debug(
+            f"[server] 阶段2完成: 检测完成, 标注图 keys={list(annotated_images.keys())}"
+        )
 
         # ── 3. 组装图片传给 LLM ──
+        logger.debug("[server] 阶段3: 组装标注图并调用 LLM 判定...")
         ordered_keys = ["top_left_det", "top_right_det", "bottom_left_det"]
         annotated_list: list[Image.Image] = []
         for key in ordered_keys:
@@ -55,6 +69,7 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
             annotated_list.append(annotated_images[key])
 
         suspect_image = quadrants["bottom_right"]
+        logger.debug("[server] 阶段3准备就绪: 3张标注图 + 1张嫌疑图")
 
         client = VisionClient(
             model=settings.judge_model,
@@ -65,10 +80,12 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
             annotated_images=annotated_list,
             suspect_image=suspect_image,
         )
+        logger.debug(
+            f"[server] 阶段3完成: violated={result.violated}, reason={result.reason}"
+        )
 
+        logger.debug("[server] ========== 请求处理完成 ==========")
         return Response(
-            code=0,
-            msg="success",
             data=JudgeData(
                 filename=image_file.filename or "upload",
                 violated=result.violated,
