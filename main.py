@@ -23,6 +23,18 @@ from detector.utils.image_tools import preprocess_single
 app = FastAPI(title="交通违法判定服务", version="0.1.0")
 
 
+# ── 启动时打印全局配置 ───────────────────────────────
+logger.info("=" * 50)
+logger.info("加载全局配置 Settings:")
+logger.info(f"  yolo_model_path    = {settings.yolo_model_path!r}")
+logger.info(f"  yolo_conf_threshold = {settings.yolo_conf_threshold}")
+logger.info(f"  yolo_device         = {settings.yolo_device!r}")
+logger.info(f"  judge_model        = {settings.judge_model!r}")
+logger.info(f"  judge_base_url     = {settings.judge_base_url!r}")
+logger.info(f"  judge_api_key      = {'***' if settings.judge_api_key else '(empty)'}")
+logger.info("=" * 50)
+
+
 @app.get("/health")
 async def health():
     """健康检查端点（供 Docker healthcheck 使用）。"""
