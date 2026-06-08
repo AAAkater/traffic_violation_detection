@@ -23,6 +23,12 @@ from detector.utils.image_tools import preprocess_single
 app = FastAPI(title="交通违法判定服务", version="0.1.0")
 
 
+@app.get("/health")
+async def health():
+    """健康检查端点（供 Docker healthcheck 使用）。"""
+    return {"status": "ok"}
+
+
 @app.post("/judge")
 async def judge(image_file: UploadFile = File(..., alias="file")):
     # 读取上传的图片

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
@@ -90,18 +92,21 @@ class TrafficLightDetector:
     def __init__(
         self,
         model_path: str,
+        device: str,
         conf_threshold: float = 0.5,
-        device: str | None = None,
     ) -> None:
-        self._model = YOLO(model_path, verbose=False)
-        self.conf_threshold = conf_threshold
         self._device = device
+        self._model = YOLO(model_path, verbose=False).to(device)
+        self.conf_threshold = conf_threshold
 
     # ── YOLO 推理 ──
 
     def detect(self, source: str | np.ndarray) -> list[Detection]:
         """检测图片中的红绿灯，返回检测结果列表。"""
+        t0 = time.perf_counter()
         results = self._model.predict(source=source, verbose=False, device=self._device)
+        elapsed = time.perf_counter() - t0
+        logger.info(f"[YOLO] 推理耗时: {elapsed:.3f}s")
         detections: list[Detection] = []
 
         for r in results:

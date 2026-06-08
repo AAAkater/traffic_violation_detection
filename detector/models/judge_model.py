@@ -3,6 +3,7 @@
 import base64
 import io
 import json
+import time
 from collections.abc import Sequence
 
 from openai import AsyncOpenAI
@@ -104,6 +105,7 @@ class VisionClient:
         )
 
         # 流式调用，积累完整回复
+        t0 = time.perf_counter()
         stream = await self._client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": content}],
@@ -120,7 +122,8 @@ class VisionClient:
                 raw_chunks.append(delta.content)
 
         raw = "".join(raw_chunks)
-        logger.debug(f"[vision] 回复长度: {len(raw)}")
+        elapsed = time.perf_counter() - t0
+        logger.info(f"[vision] LLM推理耗时: {elapsed:.3f}s, 回复长度: {len(raw)}")
 
         # 解析模型回复
         try:

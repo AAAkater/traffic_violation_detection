@@ -4,6 +4,8 @@
 全程在内存中完成，不涉及文件 I/O。
 """
 
+import time
+
 import numpy as np
 from PIL import Image
 
@@ -18,8 +20,8 @@ DETECT_ORDER: list[str] = ["top_left", "top_right", "bottom_left"]
 def run(
     quadrant_images: dict[str, Image.Image],
     model_path: str,
+    device: str,
     conf_threshold: float = 0.5,
-    device: str | None = None,
 ) -> dict[str, Image.Image]:
     """对预处理后的象限图片执行红绿灯检测流水线。
 
@@ -34,8 +36,11 @@ def run(
         annotated_images — 标注图映射。
         key 为 "{eng_name}_det"，如 "top_left_det"。
     """
+    t0 = time.perf_counter()
     detector = TrafficLightDetector(
-        model_path, conf_threshold=conf_threshold, device=device
+        model_path,
+        device=device,
+        conf_threshold=conf_threshold,
     )
 
     per_quadrant_detections: dict[str, list[Detection]] = {}
@@ -97,5 +102,8 @@ def run(
         )
         annotated_images[f"{eng_name}_det"] = annotated
         logger.debug(f"[{eng_name}] 标注图已生成")
+
+    elapsed = time.perf_counter() - t0
+    logger.info(f"[detect] YOLO检测流水线总耗时: {elapsed:.3f}s")
 
     return annotated_images
