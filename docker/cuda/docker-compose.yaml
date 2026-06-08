@@ -6,15 +6,19 @@ services:
     image: traffic-violation-detection:cuda
     container_name: tvd-cuda
     ports:
-      - "8111:8111"
+      - "${PORT:-4320}:4321"
     volumes:
       # 挂载模型权重目录（YOLO 模型等）
-      - ../../models:/app/models:ro
-      # 挂载 .env 配置
-      - ../../.env:/app/.env:ro
+      - ../../models:/app/models
     environment:
-      - MODEL_PATH=/app/models/YOLO26/best.pt
-      - NVIDIA_VISIBLE_DEVICES=all
+      # ── 检测模块 ──
+      - YOLO_MODEL_PATH=${YOLO_MODEL_PATH:-/app/models/YOLO26/best.pt}
+      - YOLO_CONF_THRESHOLD=${YOLO_CONF_THRESHOLD:-0.4}
+      - YOLO_DEVICE=${YOLO_DEVICE:-cuda}
+      # ── 判定模块 ──
+      - JUDGE_MODEL=${JUDGE_MODEL:-qwen3.7-plus}
+      - JUDGE_BASE_URL=${JUDGE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - JUDGE_API_KEY=${JUDGE_API_KEY}
     deploy:
       resources:
         reservations:
@@ -22,9 +26,8 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8111/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4321/health"]
       interval: 30s
       timeout: 10s
       retries: 3
