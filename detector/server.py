@@ -37,9 +37,9 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
         detect_quadrants = {
             k: v
             for k, v in quadrants.items()
-            if k in ("topleft", "topright", "bottomleft")
+            if k in ("top_left", "top_right", "bottom_left")
         }
-        _stats, annotated_images = detect_run(
+        annotated_images = detect_run(
             quadrant_images=detect_quadrants,
             model_path=settings.yolo_model_path,
             conf_threshold=settings.yolo_conf_threshold,
@@ -47,14 +47,14 @@ async def judge(image_file: UploadFile = File(..., alias="file")):
         )
 
         # ── 3. 组装图片传给 LLM ──
-        ordered_keys = ["topleft_det", "topright_det", "bottomleft_det"]
+        ordered_keys = ["top_left_det", "top_right_det", "bottom_left_det"]
         annotated_list: list[Image.Image] = []
         for key in ordered_keys:
             if key not in annotated_images:
                 raise HTTPException(status_code=400, detail=f"缺少标注图: {key}")
             annotated_list.append(annotated_images[key])
 
-        suspect_image = quadrants["bottomright"]
+        suspect_image = quadrants["bottom_right"]
 
         client = VisionClient(
             model=settings.judge_model,
