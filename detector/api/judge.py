@@ -6,8 +6,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from PIL import Image
 
 from detector.common.response import JudgeData, Response
-from detector.detect import run as detect_run
-from detector.models import TrafficLightDetector
+from detector.detect import detect_pipeline
 from detector.models.judge_model import VisionClient
 from detector.settings import settings
 from detector.utils import logger
@@ -47,7 +46,7 @@ async def judge(image_file: UploadFile = File(..., alias="image_file")):
             for k, v in quadrants.items()
             if k in ("top_left", "top_right", "bottom_left")
         }
-        annotated_images, raw_detections = detect_run(
+        annotated_images, raw_detections = detect_pipeline(
             quadrant_images=detect_quadrants,
             model_path=settings.yolo_model_path,
             conf_threshold=settings.yolo_conf_threshold,
@@ -64,16 +63,10 @@ async def judge(image_file: UploadFile = File(..., alias="image_file")):
         }
         suspect_compressed = compress_to_1080p(quadrants["bottom_right"])
 
-        redraw_detector = TrafficLightDetector(
-            settings.yolo_model_path,
-            device=settings.yolo_device,
-            conf_threshold=settings.yolo_conf_threshold,
-        )
         annotated_1080p = redraw_detections_on_compressed(
             original_images=detect_quadrants,
             compressed_images=compressed_detect,
             detections=raw_detections,
-            detector=redraw_detector,
         )
         logger.debug("[server] 阶段3完成: 重绘完成")
 

@@ -11,6 +11,8 @@ import time
 import numpy as np
 from PIL import Image
 
+from detector.draw import draw_detections
+from detector.filter import filter_spatial
 from detector.models import TrafficLightDetector
 from detector.models.detect_model import Detection
 from detector.utils import logger
@@ -19,7 +21,7 @@ from detector.utils import logger
 DETECT_ORDER: list[str] = ["top_left", "top_right", "bottom_left"]
 
 
-def run(
+def detect_pipeline(
     quadrant_images: dict[str, Image.Image],
     model_path: str,
     device: str,
@@ -76,7 +78,7 @@ def run(
             )
         )
 
-        vehicle = detector.filter_spatial(
+        vehicle = filter_spatial(
             raw,
             image_height=h,
             image_width=w,
@@ -100,9 +102,7 @@ def run(
 
         detections = per_quadrant_detections.get(eng_name, [])
 
-        annotated = (
-            detector.draw_detections(pil_img, detections) if detections else pil_img
-        )
+        annotated = draw_detections(pil_img, detections) if detections else pil_img
         annotated_images[f"{eng_name}_det"] = annotated
         logger.debug(f"[{eng_name}] 标注图已生成")
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from detector.models import TrafficLightDetector
+from detector.draw import draw_detections
 from detector.models.detect_model import Detection
 
 _TARGET_1080P = 1080
@@ -32,7 +32,6 @@ def redraw_detections_on_compressed(
     original_images: dict[str, Image.Image],
     compressed_images: dict[str, Image.Image],
     detections: dict[str, list],  # list[Detection]
-    detector: "TrafficLightDetector",
 ) -> dict[str, Image.Image]:
     """将原始分辨率的检测框坐标映射到压缩图上重新绘制。
 
@@ -44,7 +43,6 @@ def redraw_detections_on_compressed(
         original_images: 原始分辨率象限图，key 为 eng_name。
         compressed_images: 压缩后的象限图，key 为 eng_name。
         detections: 原始检测结果，key 为 eng_name，value 为 Detection 列表。
-        detector: TrafficLightDetector 实例，用于调用 draw_detections。
 
     Returns:
         在压缩图上绘制了检测框的新图片，key 为 "{eng_name}_det"。
@@ -80,7 +78,7 @@ def redraw_detections_on_compressed(
                 )
             )
 
-        annotated[f"{eng_name}_det"] = detector.draw_detections(comp_img, scaled)
+        annotated[f"{eng_name}_det"] = draw_detections(comp_img, scaled)
 
     return annotated
 
