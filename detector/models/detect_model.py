@@ -1,7 +1,5 @@
 """红绿灯检测模型 — YOLO 加载、推理、空间过滤、画框标注。"""
 
-from __future__ import annotations
-
 import time
 
 import numpy as np
@@ -25,7 +23,12 @@ COLORS: dict[str, tuple[int, int, int]] = {
 }
 
 
-FONT = ImageFont.load_default()
+try:
+    FONT = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size=24
+    )
+except OSError:
+    FONT = ImageFont.load_default()
 
 
 # ---------------------------------------------------------------------------
@@ -177,17 +180,32 @@ class TrafficLightDetector:
         self,
         img: Image.Image,
         detections: list[Detection],
+        *,
+        expand_ratio: float = 0.15,
     ) -> Image.Image:
-        """在图片上绘制检测框和类别标签，返回标注后的副本。"""
+        """在图片上绘制检测框和类别标签，返回标注后的副本。
+
+        Args:
+            img: 原始 PIL 图片。
+            detections: 检测结果列表。
+            expand_ratio: 框向外扩展的比例（默认 0.15 即 15%）。
+        """
         annotated = img.copy()
         draw = ImageDraw.Draw(annotated)
 
         for det in detections:
             cls_name = det.class_name
             x1, y1, x2, y2 = int(det.x1), int(det.y1), int(det.x2), int(det.y2)
+
+            # 向外扩展框
+            bw, bh = x2 - x1, y2 - y1
+            pad_w, pad_h = int(bw * expand_ratio), int(bh * expand_ratio)
+            x1, y1 = x1 - pad_w, y1 - pad_h
+            x2, y2 = x2 + pad_w, y2 + pad_h
+
             color = COLORS.get(cls_name, (255, 255, 255))
 
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
 
             # 标签放在检测框下方
             text = cls_name

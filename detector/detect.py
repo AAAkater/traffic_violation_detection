@@ -4,7 +4,10 @@
 全程在内存中完成，不涉及文件 I/O。
 """
 
+from __future__ import annotations
+
 import time
+from typing import Literal, overload
 
 import numpy as np
 from PIL import Image
@@ -17,12 +20,36 @@ from detector.utils import logger
 DETECT_ORDER: list[str] = ["top_left", "top_right", "bottom_left"]
 
 
+@overload
 def run(
     quadrant_images: dict[str, Image.Image],
     model_path: str,
     device: str,
     conf_threshold: float = 0.5,
-) -> dict[str, Image.Image]:
+    *,
+    return_raw_detections: Literal[False] = False,
+) -> dict[str, Image.Image]: ...
+
+
+@overload
+def run(
+    quadrant_images: dict[str, Image.Image],
+    model_path: str,
+    device: str,
+    conf_threshold: float = 0.5,
+    *,
+    return_raw_detections: Literal[True],
+) -> tuple[dict[str, Image.Image], dict[str, list[Detection]]]: ...
+
+
+def run(
+    quadrant_images: dict[str, Image.Image],
+    model_path: str,
+    device: str,
+    conf_threshold: float = 0.5,
+    *,
+    return_raw_detections: bool = False,
+):
     """对预处理后的象限图片执行红绿灯检测流水线。
 
     Args:
@@ -31,10 +58,13 @@ def run(
         model_path: YOLO 模型权重路径。
         conf_threshold: 检测置信度阈值。
         device: 推理设备。
+        return_raw_detections: 若为 True，额外返回原始检测坐标字典。
 
     Returns:
-        annotated_images — 标注图映射。
-        key 为 "{eng_name}_det"，如 "top_left_det"。
+        若 return_raw_detections=False:
+            annotated_images — 标注图映射，key "{eng_name}_det"。
+        若 return_raw_detections=True:
+            (annotated_images, raw_detections) 二元组。
     """
     t0 = time.perf_counter()
     detector = TrafficLightDetector(
@@ -106,4 +136,6 @@ def run(
     elapsed = time.perf_counter() - t0
     logger.info(f"[detect] YOLO检测流水线总耗时: {elapsed:.3f}s")
 
+    if return_raw_detections:
+        return annotated_images, per_quadrant_detections
     return annotated_images
