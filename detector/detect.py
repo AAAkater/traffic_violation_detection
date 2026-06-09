@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import time
-from typing import Literal, overload
 
 import numpy as np
 from PIL import Image
@@ -20,51 +19,25 @@ from detector.utils import logger
 DETECT_ORDER: list[str] = ["top_left", "top_right", "bottom_left"]
 
 
-@overload
 def run(
     quadrant_images: dict[str, Image.Image],
     model_path: str,
     device: str,
     conf_threshold: float = 0.5,
-    *,
-    return_raw_detections: Literal[False] = False,
-) -> dict[str, Image.Image]: ...
-
-
-@overload
-def run(
-    quadrant_images: dict[str, Image.Image],
-    model_path: str,
-    device: str,
-    conf_threshold: float = 0.5,
-    *,
-    return_raw_detections: Literal[True],
-) -> tuple[dict[str, Image.Image], dict[str, list[Detection]]]: ...
-
-
-def run(
-    quadrant_images: dict[str, Image.Image],
-    model_path: str,
-    device: str,
-    conf_threshold: float = 0.5,
-    *,
-    return_raw_detections: bool = False,
-):
+) -> tuple[dict[str, Image.Image], dict[str, list[Detection]]]:
     """对预处理后的象限图片执行红绿灯检测流水线。
 
     Args:
-        quadrant_images: 象限名到 PIL Image 的映射，由 preprocess_single 返回。
-            包含 "top_left", "top_right", "bottom_left" 三个检测象限。
+        quadrant_images: 象限名到 PIL Image 的映射，包含
+            "top_left", "top_right", "bottom_left" 三个检测象限。
         model_path: YOLO 模型权重路径。
-        conf_threshold: 检测置信度阈值。
         device: 推理设备。
-        return_raw_detections: 若为 True，额外返回原始检测坐标字典。
+        conf_threshold: 检测置信度阈值。
 
     Returns:
-        若 return_raw_detections=False:
-            annotated_images — 标注图映射，key "{eng_name}_det"。
-        若 return_raw_detections=True:
-            (annotated_images, raw_detections) 二元组。
+        (annotated_images, raw_detections) 二元组。
+        annotated_images — 标注图映射，key "{eng_name}_det"。
+        raw_detections — 原始检测坐标字典。
     """
     t0 = time.perf_counter()
     detector = TrafficLightDetector(
@@ -136,6 +109,4 @@ def run(
     elapsed = time.perf_counter() - t0
     logger.info(f"[detect] YOLO检测流水线总耗时: {elapsed:.3f}s")
 
-    if return_raw_detections:
-        return annotated_images, per_quadrant_detections
-    return annotated_images
+    return annotated_images, per_quadrant_detections

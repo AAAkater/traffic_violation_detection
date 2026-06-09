@@ -52,7 +52,6 @@ async def judge(image_file: UploadFile = File(..., alias="image_file")):
             model_path=settings.yolo_model_path,
             conf_threshold=settings.yolo_conf_threshold,
             device=settings.yolo_device,
-            return_raw_detections=True,
         )
         logger.debug(
             f"[server] 阶段2完成: 检测完成, 标注图 keys={list(annotated_images.keys())}"
