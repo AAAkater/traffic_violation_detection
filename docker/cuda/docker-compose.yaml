@@ -1,7 +1,7 @@
 name: tvd
 
 services:
-  traffic-violation-detection-cuda:
+  server-cuda:
     build:
       context: ../../
       dockerfile: docker/cuda/Dockerfile
@@ -13,6 +13,8 @@ services:
       - ./volume/models:/app/models
       # 日志持久化（可选）
       - ./volume/logs:/app/logs
+      # YOLO 配置持久化
+      - ./volume/configs:/app/configs
     environment:
       # ── 检测模块 ──
       - YOLO_MODEL_PATH=/app/models/v1.pt
@@ -31,7 +33,7 @@ services:
               capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4321/v1/health"]
-      interval: 30s
+      interval: 5m
       timeout: 10s
       retries: 3
       start_period: 30s

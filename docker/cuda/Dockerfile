@@ -1,27 +1,31 @@
 # ── Stage 1: Build ──────────────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
-# Ensure bytecode compilation & copy-mode for multi-stage compatibility
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_HTTP_TIMEOUT=120
+    UV_HTTP_TIMEOUT=120 \
+    UV_PYTHON_INSTALL_DIR=/python \
+    UV_PYTHON_PREFERENCE=only-managed
+
+# Install Python before the project for caching
+RUN uv python install 3.13
 
 WORKDIR /app
 
-# Copy dependency declarations first — maximizes Docker layer caching
-COPY pyproject.toml uv.lock .python-version ./
-
-# Install dependencies using PyTorch CUDA 13.0 wheel index
-RUN uv sync --frozen --index https://download.pytorch.org/whl/cu130 --no-dev
+# bind mount: pyproject.toml/uv.lock 不进镜像层，源码变更不触发依赖重装
+# cache mount: uv 下载缓存跨构建保留
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    uv sync --frozen --index https://download.pytorch.org/whl/cu130 --no-dev
 
 # Copy project source code
+# (no second sync needed — project has no [build-system] / self-install)
 COPY . .
 
-# Re-sync to install the project package itself
-RUN uv sync --frozen --index https://download.pytorch.org/whl/cu130 --no-dev
-
 # ── Stage 2: Runtime ──────────────────────────────────────
-FROM nvidia/cuda:13.0.0-runtime-ubuntu24.04 AS runtime
+# base 镜像比 runtime 小 ~200 MB（少 CUDA 示例/文档等）
+FROM nvidia/cuda:13.0.0-base-ubuntu24.04 AS runtime
 
 # Install runtime system dependencies in a single layer (no Python from apt!)
 RUN apt-get update && \
@@ -33,28 +37,23 @@ RUN apt-get update && \
         curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy uv binary from builder
-COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
-
-# Install Python 3.13 via uv (standalone build, no deadsnakes PPA needed)
-RUN uv python install 3.13
+# Copy standalone Python from builder — no uv needed in runtime!
+COPY --from=builder /python /python
 
 WORKDIR /app
 
-# Copy virtual environment & source from builder
+# Only copy what's needed at runtime (not pyproject.toml, uv.lock, etc.)
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app /app
-
-# Re-link venv Python symlink to the local uv-managed Python 3.13
-# (keeps all installed packages intact, only updates interpreter link)
-RUN uv venv --python 3.13 --allow-existing /app/.venv
+COPY --from=builder /app/main.py /app/
+COPY --from=builder /app/detector/ /app/detector/
 
 # Environment variables
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    YOLO_CONFIG_DIR=/app/configs
 
 EXPOSE 4321
 
 # Use FastAPI CLI (production: fastapi run; dev: fastapi dev)
-CMD ["fastapi", "dev", "./main.py", "--host", "0.0.0.0", "--port", "4321"]
+CMD ["fastapi", "run", "./main.py", "--host", "0.0.0.0", "--port", "4321"]
