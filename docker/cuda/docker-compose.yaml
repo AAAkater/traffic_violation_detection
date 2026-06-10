@@ -1,18 +1,21 @@
+name: tvd
+
 services:
-  traffic-violation-detection:
+  traffic-violation-detection-cuda:
     build:
-      context: ../..
+      context: ../../
       dockerfile: docker/cuda/Dockerfile
     image: traffic-violation-detection:cuda
-    container_name: tvd-cuda
     ports:
       - "4321:4321"
     volumes:
-      # 挂载模型权重目录（YOLO 模型等）
-      - ../../models:/app/models
+      # 模型权重：放到旁边的 volume/models/ 目录，启动时自动挂载
+      - ./volume/models:/app/models
+      # 日志持久化（可选）
+      - ./volume/logs:/app/logs
     environment:
       # ── 检测模块 ──
-      - YOLO_MODEL_PATH=${YOLO_MODEL_PATH:-/app/models/YOLO26/best.pt}
+      - YOLO_MODEL_PATH=/app/models/v1.pt
       - YOLO_CONF_THRESHOLD=${YOLO_CONF_THRESHOLD:-0.4}
       - YOLO_DEVICE=${YOLO_DEVICE:-cuda}
       # ── 判定模块 ──

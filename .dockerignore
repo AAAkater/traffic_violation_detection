@@ -15,9 +15,8 @@ build/
 # Environment
 .env
 
-# Logs & output
-logs/
-output/
+# Docker volumes (model weights, logs)
+docker/*/volume/
 
 # Assets & data (large files)
 assets/
