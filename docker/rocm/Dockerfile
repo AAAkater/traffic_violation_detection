@@ -48,4 +48,4 @@ ENV PATH="/app/.venv/bin:$PATH" \
 EXPOSE 8111
 
 # 使用 uvicorn 启动 FastAPI 服务
-CMD ["uvicorn", "detector.server:app", "--host", "0.0.0.0", "--port", "8111"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8111"]

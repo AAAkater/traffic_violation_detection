@@ -3,8 +3,8 @@ name: tvd
 services:
   server-cuda:
     build:
-      context: ../../
-      dockerfile: docker/cuda/Dockerfile
+      context: ../../server
+      dockerfile: ../docker/cuda/Dockerfile
     image: traffic-violation-detection:cuda
     ports:
       - "4321:4321"

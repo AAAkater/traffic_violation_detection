@@ -6,17 +6,24 @@
 
 ```
 traffic_violation_detection/
-├── main.py                  # FastAPI 服务入口
-├── detector/                # 检测 & 判定核心逻辑
-│   ├── detect.py            # YOLO 目标检测
-│   ├── filter.py            # 检测结果过滤
-│   ├── draw.py              # 标注绘制
-│   └── api/                 # FastAPI 路由 & 生命周期
+├── server/                      # Python 服务代码
+│   ├── main.py                  # FastAPI 服务入口
+│   ├── pyproject.toml           # 项目依赖
+│   ├── .env.example             # 环境变量示例
+│   ├── detector/                # 检测 & 判定核心逻辑
+│   │   ├── detect.py            # YOLO 目标检测
+│   │   ├── filter.py            # 检测结果过滤
+│   │   ├── draw.py              # 标注绘制
+│   │   └── api/                 # FastAPI 路由 & 生命周期
+│   └── .dockerignore
 ├── docker/
-│   └── cuda/                # NVIDIA GPU 部署
+│   ├── cuda/                    # NVIDIA GPU 部署
+│   │   ├── Dockerfile
+│   │   └── docker-compose.yaml
+│   └── rocm/                    # AMD GPU 部署
 │       ├── Dockerfile
 │       └── docker-compose.yaml
-└── models/                  # 模型权重目录（自动从 ModelScope 下载）
+└── .gitignore
 ```
 
 ---
