@@ -1,4 +1,4 @@
-"""数据库与存储模块 — PostgreSQL 引擎 + RustFS 对象存储 + ORM 表定义。"""
+"""数据库与存储模块 — PostgreSQL 引擎 + S3 对象存储 + ORM 表定义。"""
 
 from detector.db.engine import Base, async_session, engine, get_db
 from detector.db.storage import download_image, upload_bytes, upload_pil_image

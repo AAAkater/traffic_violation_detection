@@ -41,7 +41,7 @@ class DetectImage(Base):
         String(255), nullable=False, comment="上传文件名"
     )
     image_url: Mapped[str | None] = mapped_column(
-        String(1024), nullable=True, comment="原始图片在 RustFS 中的 URL"
+        String(1024), nullable=True, comment="原始图片在对象存储中的 URL"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, comment="创建时间"

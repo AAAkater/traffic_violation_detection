@@ -75,21 +75,34 @@ class Settings(BaseSettings):
             path=self.POSTGRES_DB,
         )
 
-    # ── 对象存储 (RustFS / MinIO) ──
-    rustfs_endpoint: str = "http://localhost:9010"
-    """RustFS S3 兼容端点 URL。"""
+    # ── 对象存储 (S3 兼容) ──
+    s3_server: str = "localhost"
+    """S3 兼容服务主机地址。"""
 
-    rustfs_access_key: str = "minioadmin"
-    """RustFS 访问密钥。"""
+    s3_port: int = 9000
+    """S3 兼容服务端口。"""
 
-    rustfs_secret_key: str = "minioadmin"
-    """RustFS 密钥。"""
+    s3_access_key: str = "minioadmin"
+    """S3 访问密钥。"""
 
-    rustfs_bucket: str = "traffic"
-    """RustFS 存储桶名称。"""
+    s3_secret_key: str = "minioadmin"
+    """S3 密钥。"""
 
-    rustfs_region: str = "us-east-1"
-    """RustFS 区域。"""
+    s3_bucket: str = "traffic"
+    """S3 存储桶名称。"""
+
+    s3_region: str = "us-east-1"
+    """S3 区域。"""
+
+    s3_use_https: bool = False
+    """是否使用 HTTPS 连接 S3 服务。"""
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def s3_endpoint(self) -> str:
+        """自动拼接的 S3 兼容端点 URL。"""
+        scheme = "https" if self.s3_use_https else "http"
+        return f"{scheme}://{self.s3_server}:{self.s3_port}"
 
 
 # 全局单例

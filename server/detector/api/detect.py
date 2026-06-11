@@ -31,7 +31,7 @@ async def detect(
             f"[detect] 文件名: {image_file.filename}, 大小: {len(contents)} bytes"
         )
 
-        # ── 0. 生成图片唯一标识 & 上传原始图片到 RustFS ──
+        # ── 0. 生成图片唯一标识 & 上传原始图片到对象存储 ──
         image_id = uuid.uuid4().hex[:16]
         image_url = upload_bytes(
             data=contents,

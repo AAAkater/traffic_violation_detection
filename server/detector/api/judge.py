@@ -49,7 +49,7 @@ async def judge(
             raise HTTPException(status_code=404, detail=f"未找到图片: {image_id}")
         if not detect_image.image_url:
             raise HTTPException(
-                status_code=400, detail=f"图片无 RustFS URL: {image_id}"
+                status_code=400, detail=f"图片无对象存储 URL: {image_id}"
             )
 
         box_result = await db.execute(
@@ -63,8 +63,8 @@ async def judge(
             f"检测框={len(detection_boxes)} 个"
         )
 
-        # ── 1. 从 RustFS 下载原图 ──
-        logger.debug("[judge] 阶段1: 从 RustFS 下载原图...")
+        # ── 1. 从对象存储下载原图 ──
+        logger.debug("[judge] 阶段1: 从对象存储下载原图...")
         contents = download_image(detect_image.image_url)
         logger.debug(f"[judge] 阶段1完成: 下载 {len(contents)} bytes")
 
