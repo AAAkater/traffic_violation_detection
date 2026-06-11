@@ -32,16 +32,6 @@ class Settings(BaseSettings):
     yolo_device: str = "cuda"
     """推理设备：\"cuda\" 使用 GPU，\"cpu\" 使用 CPU，\"cuda:0\" 指定具体 GPU。"""
 
-    # ── 判定模块 ──
-    judge_model: str = "qwen3.7-plus"
-    """判定模型名称。"""
-
-    judge_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    """判定 API 基础 URL。"""
-
-    judge_api_key: str = ""
-    """判定 API 密钥。"""
-
     # ── 默认系统提示词 ──
     default_system_prompt: str = ""
     """默认系统提示词，为空时使用 VisionClient 内置提示词。"""
@@ -62,7 +52,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "dev"
     """数据库名称。"""
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
         """自动拼接的数据库连接 URL。"""
@@ -91,18 +81,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "traffic"
     """S3 存储桶名称。"""
 
-    s3_region: str = "us-east-1"
-    """S3 区域。"""
-
-    s3_use_https: bool = False
-    """是否使用 HTTPS 连接 S3 服务。"""
-
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def s3_endpoint(self) -> str:
         """自动拼接的 S3 兼容端点 URL。"""
-        scheme = "https" if self.s3_use_https else "http"
-        return f"{scheme}://{self.s3_server}:{self.s3_port}"
+        return f"http://{self.s3_server}:{self.s3_port}"
 
 
 # 全局单例
