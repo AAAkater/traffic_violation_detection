@@ -19,3 +19,12 @@ dependencies = [
     "boto3>=1.43.27",
     "asyncpg>=0.31.0",
 ]
+
+[tool.fastapi]
+entrypoint = "detector.api:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]
