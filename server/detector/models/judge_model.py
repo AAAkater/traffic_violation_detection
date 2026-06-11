@@ -43,6 +43,7 @@ class VisionClient:
         self,
         annotated_images: Sequence[Image.Image],
         suspect_image: Image.Image,
+        system_prompt: str | None = None,
     ) -> ViolationResult:
         """判断嫌疑车辆是否违反交通灯（闯红灯）。
 
@@ -51,6 +52,7 @@ class VisionClient:
         Args:
             annotated_images: 3 张标注了检测框的 PIL 图片（左上、右上、左下）。
             suspect_image: 嫌疑车辆 PIL 图片（右下象限）。
+            system_prompt: 自定义系统提示词。若为 None 则使用内置默认提示词。
 
         Returns:
             ViolationResult 判定结果。
@@ -62,7 +64,7 @@ class VisionClient:
             "- 第4张（右下）：嫌疑车辆图",
         ]
 
-        prompt = (
+        _default_prompt = (
             "你是一个交通违法判定助手。以下是同一十字路口同一角度但不同时间拍摄的三张交通灯检测标注图"
             "（按时间从早到晚排列），检测框中标注了交通灯的位置和类别（red/green/yellow/off/wait_on）。"
             "最后一张是嫌疑车辆图。\n\n"
@@ -86,6 +88,8 @@ class VisionClient:
             "请按以下 JSON 格式回答（不要输出其他内容）：\n"
             '{"violated": true/false, "reason": "判定理由"}'
         )
+
+        prompt = system_prompt if system_prompt is not None else _default_prompt
 
         # 构建 API 请求内容
         content: list[

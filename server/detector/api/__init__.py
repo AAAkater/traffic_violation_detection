@@ -7,15 +7,22 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI
 from modelscope.hub.file_download import model_file_download
 
+from detector.api.detect import router as detect_router
 from detector.api.health import router as health_router
+from detector.api.history import router as history_router
 from detector.api.judge import router as judge_router
+from detector.api.prompt import router as prompt_router
+from detector.db import Base, engine
 from detector.settings import settings
 from detector.utils import logger
 
 # ── v1 路由 ───────────────────────────────────────────────
 v1_router = APIRouter(prefix="/v1")
 v1_router.include_router(health_router)
+v1_router.include_router(detect_router)
+v1_router.include_router(prompt_router)
 v1_router.include_router(judge_router)
+v1_router.include_router(history_router)
 
 
 def _ensure_model(model_path: str) -> None:
@@ -60,4 +67,10 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
 
     _ensure_model(settings.yolo_model_path)
+
+    # 创建数据库表（如果不存在）
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("数据库表检查完成")
+
     yield
