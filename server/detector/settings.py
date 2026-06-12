@@ -22,6 +22,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    # ── 运行模式 ──
+    IS_DEV: bool = False
+    """开发模式：为 True 时日志输出 DEBUG 级别到控制台。"""
+
     # ── 检测模块 ──
     yolo_model_path: str = ""
     """YOLO 模型权重路径。"""

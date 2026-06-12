@@ -2,6 +2,8 @@ import sys
 
 from loguru import logger
 
+from detector.settings import settings
+
 logger.remove()
 logger.add(
     "./logs/{time:YYYY-MM-DD}.log",
@@ -11,4 +13,4 @@ logger.add(
     level="DEBUG",
     enqueue=True,
 )
-logger.add(sys.stderr, level="INFO")
+logger.add(sys.stderr, level="DEBUG" if settings.IS_DEV else "INFO")
