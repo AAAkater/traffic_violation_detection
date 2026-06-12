@@ -13,17 +13,8 @@ from openai.types.chat import (
 )
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 from PIL import Image
-from pydantic import BaseModel, Field
 
 from detector.utils import logger
-
-
-class ViolationResult(BaseModel):
-    """交通违法判定结果。"""
-
-    violated: bool = Field(description="是否违反交通灯（闯红灯）")
-    reason: str = Field(description="判定理由")
-    raw_response: str = Field(default="", description="模型原始流式回复全文")
 
 
 class VisionClient:
@@ -44,7 +35,7 @@ class VisionClient:
         annotated_images: Sequence[Image.Image],
         suspect_image: Image.Image,
         system_prompt: str | None = None,
-    ) -> ViolationResult:
+    ) -> tuple[bool, str, str]:
         """判断嫌疑车辆是否违反交通灯（闯红灯）。
 
         将 3 张标注了检测框的象限图 + 嫌疑车辆图发送给多模态模型。
@@ -55,7 +46,7 @@ class VisionClient:
             system_prompt: 自定义系统提示词。若为 None 则使用内置默认提示词。
 
         Returns:
-            ViolationResult 判定结果。
+            (violated, reason, raw_response) 三元组。
         """
         descriptions = [
             "- 第1张（左上，时间最早）：交通灯检测标注图",
@@ -92,9 +83,9 @@ class VisionClient:
         prompt = system_prompt if system_prompt is not None else _default_prompt
 
         # 构建 API 请求内容
-        content: list[
-            ChatCompletionContentPartImageParam | ChatCompletionContentPartTextParam
-        ] = [ChatCompletionContentPartTextParam(type="text", text=prompt)]
+        content: list[ChatCompletionContentPartImageParam | ChatCompletionContentPartTextParam] = [
+            ChatCompletionContentPartTextParam(type="text", text=prompt)
+        ]
 
         for img in [*annotated_images, suspect_image]:
             buf = io.BytesIO()
@@ -103,16 +94,11 @@ class VisionClient:
             content.append(
                 ChatCompletionContentPartImageParam(
                     type="image_url",
-                    image_url=ImageURL(
-                        url=f"data:image/jpeg;base64,{b64}", detail="high"
-                    ),
+                    image_url=ImageURL(url=f"data:image/jpeg;base64,{b64}", detail="high"),
                 )
             )
 
-        logger.debug(
-            f"[vision] 违法判定请求: {len(annotated_images) + 1} 张图片, "
-            f"prompt 长度: {len(prompt)}"
-        )
+        logger.debug(f"[vision] 违法判定请求: {len(annotated_images) + 1} 张图片, prompt 长度: {len(prompt)}")
 
         # 流式调用，积累完整回复
         t0 = time.perf_counter()
@@ -137,17 +123,12 @@ class VisionClient:
 
         # 解析模型回复
         try:
-            # 尝试从回复中提取 JSON
             start = raw.find("{")
             end = raw.rfind("}") + 1
             if start >= 0 and end > start:
                 data = json.loads(raw[start:end])
-                return ViolationResult(**data, raw_response=raw)
+                return data.get("violated", False), data.get("reason", ""), raw
         except Exception as e:
             logger.warning(f"[vision] 解析违法判定结果失败: {e}, 原始回复: {raw}")
 
-        return ViolationResult(
-            violated=False,
-            reason=f"解析失败，原始回复: {raw}",
-            raw_response=raw,
-        )
+        return False, f"解析失败，原始回复: {raw}", raw

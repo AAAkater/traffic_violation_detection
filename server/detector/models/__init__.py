@@ -1,14 +1,48 @@
-from detector.db import DetectImage, DetectionBox, JudgeRecord, SystemPrompt
-from detector.models.detect_model import Detection, TrafficLightDetector
-from detector.models.judge_model import ViolationResult, VisionClient
+from detector.models.detect import DetectData, Detection, DetectionItem
+from detector.models.history import (
+    HistoryBoxItem,
+    HistoryItem,
+    HistoryJudgeItem,
+    HistoryPage,
+)
+from detector.models.judge import JudgeData, ViolationResult
+from detector.models.prompt import PromptCreate, PromptData, PromptListItem
+from detector.models.provider import (
+    ModelActivateRequest,
+    ModelDeactivateRequest,
+    ModelInfo,
+    ProviderCreate,
+    ProviderData,
+    ProviderModelsData,
+    ProviderUpdate,
+)
+from detector.models.response import Response
 
 __all__ = [
-    "DetectImage",
+    # Pydantic schemas - detect
     "Detection",
-    "DetectionBox",
-    "JudgeRecord",
-    "SystemPrompt",
-    "TrafficLightDetector",
+    "DetectionItem",
+    "DetectData",
+    # Pydantic schemas - judge
+    "JudgeData",
     "ViolationResult",
-    "VisionClient",
+    # Pydantic schemas - history
+    "HistoryBoxItem",
+    "HistoryItem",
+    "HistoryJudgeItem",
+    "HistoryPage",
+    # Pydantic schemas - prompt
+    "PromptData",
+    "PromptCreate",
+    "PromptListItem",
+    # Pydantic schemas - provider
+    "ProviderData",
+    "ProviderCreate",
+    "ProviderUpdate",
+    "ModelInfo",
+    "ProviderModelsData",
+    "ModelActivateRequest",
+    "ModelDeactivateRequest",
+    # Pydantic schemas - response
+    "Response",
 ]

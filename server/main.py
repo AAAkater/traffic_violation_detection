@@ -12,8 +12,21 @@
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from detector.api import lifespan, v1_router
+from detector.api.v1 import v1_router
+from detector.db import lifespan
 
 app = FastAPI(title="交通违法判定服务", version="0.1.0", lifespan=lifespan)
+
+# CORS 中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 注册路由
 app.include_router(v1_router)

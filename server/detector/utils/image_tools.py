@@ -1,13 +1,12 @@
 """图片工具 — 单图预处理（象限裁剪）等图像处理辅助函数。"""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from PIL import Image
 
-from detector.draw import draw_detections
-from detector.models.detect_model import Detection
+from detector.models.detect import Detection
+
+from .draw import draw_detections
 
 _TARGET_1080P = 1080
 """1080P 压缩目标：长边不超过此像素数。"""

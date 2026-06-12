@@ -76,6 +76,7 @@ class S3Storage:
         Returns:
             上传后的完整 URL。
         """
+        bucket = bucket or self.bucket_name
         # 生成对象键: prefix/YYYY-MM-DD/uuid.ext
         ext = "jpg"
         if filename and "." in filename:

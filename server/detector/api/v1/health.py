@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from detector.common.response import Response
+from detector.models.response import Response
 
 router = APIRouter(tags=["health"])
 

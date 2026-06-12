@@ -1,9 +1,7 @@
 """数据库引擎与会话管理。"""
 
 from collections.abc import AsyncGenerator
-from typing import Annotated
 
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -42,7 +40,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
-
-
-# ── Annotated 类型别名，供路由端点使用 ──
-SessionDep = Annotated[AsyncSession, Depends(get_db)]

@@ -1,7 +1,8 @@
 """空间过滤器 — 根据检测框在图像中的位置过滤非目标区域。"""
 
-from detector.models.detect_model import Detection
-from detector.utils import logger
+from detector.models.detect import Detection
+
+from .log import logger
 
 
 def filter_spatial(

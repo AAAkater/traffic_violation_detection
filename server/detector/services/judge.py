@@ -1,17 +1,19 @@
-"""违法判定端点 — 接收 image_id，从数据库获取原图和检测框，画框后传给 LLM 判定，结果持久化到数据库。"""
+"""违法判定业务逻辑 — 图片下载、预处理、LLM 判定、结果持久化。"""
 
 import io
 
-from fastapi import APIRouter, HTTPException
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from detector.api.prompt import get_system_prompt
-from detector.api.provider import get_active_provider_config
-from detector.common.response import JudgeData, Response
-from detector.db import DetectImage, DetectionBox, JudgeRecord, SessionDep, s3_storage
-from detector.models.detect_model import Detection
-from detector.models.judge_model import VisionClient
+from detector.clients.vision import VisionClient
+from detector.db.storage import S3Storage
+from detector.models.detect import Detection
+from detector.models.judge import JudgeData
+from detector.repositories.detect import DetectImageRepo, DetectionBoxRepo
+from detector.repositories.judge import JudgeRecordRepo
+from detector.repositories.prompt import SystemPromptRepo
+from detector.repositories.provider import ModelProviderRepo
+from detector.settings import settings
 from detector.utils import logger
 from detector.utils.image_tools import (
     compress_to_1080p,
@@ -20,38 +22,52 @@ from detector.utils.image_tools import (
     save_debug_images,
 )
 
-router = APIRouter(tags=["judge"])
 
+class JudgeService:
+    """违法判定业务逻辑服务。"""
 
-@router.post("/judge")
-async def judge(image_id: str, db: SessionDep) -> Response[JudgeData]:
-    """接收 image_id，从数据库获取原图和检测框，画框后传给 LLM 判定。
+    def __init__(self, session: AsyncSession, s3: S3Storage) -> None:
+        self._session = session
+        self._s3 = s3
+        self._image_repo = DetectImageRepo(session)
+        self._box_repo = DetectionBoxRepo(session)
+        self._judge_repo = JudgeRecordRepo(session)
+        self._prompt_repo = SystemPromptRepo(session)
+        self._provider_repo = ModelProviderRepo(session)
 
-    Args:
-        image_id: 检测接口返回的图片唯一标识。
-        db: 数据库会话。
-    """
-    try:
+    async def judge(self, image_id: str, provider_id: int, model: str) -> JudgeData:
+        """执行违法判定流水线。
+
+        Args:
+            image_id: 检测接口返回的图片唯一标识。
+            provider_id: 模型提供商 ID。
+            model: 模型名称。
+
+        Returns:
+            JudgeData 包含判定结果。
+
+        Raises:
+            ValueError: 图片不存在、无 URL 或无检测框。
+            RuntimeError: 未配置模型提供商。
+        """
         logger.debug("[judge] ========== 开始判定请求 ==========")
         logger.debug(f"[judge] image_id: {image_id}")
 
         # ── 0. 从数据库获取原图信息和检测框 ──
-        img_result = await db.execute(select(DetectImage).where(DetectImage.image_id == image_id))
-        detect_image: DetectImage | None = img_result.scalar_one_or_none()
+        detect_image = await self._image_repo.get_by_image_id(image_id)
         if detect_image is None:
-            raise HTTPException(status_code=404, detail=f"未找到图片: {image_id}")
+            raise ValueError(f"未找到图片: {image_id}")
         if not detect_image.image_url:
-            raise HTTPException(status_code=400, detail=f"图片无对象存储 URL: {image_id}")
+            raise ValueError(f"图片无对象存储 URL: {image_id}")
 
-        box_result = await db.execute(select(DetectionBox).where(DetectionBox.image_id == image_id))
-        detection_boxes: list[DetectionBox] = list(box_result.scalars().all())
+        detection_boxes = await self._box_repo.list_by_image_id(image_id)
         if not detection_boxes:
-            raise HTTPException(status_code=400, detail=f"该图片无检测框: {image_id}")
+            raise ValueError(f"该图片无检测框: {image_id}")
         logger.debug(f"[judge] 从数据库获取: 原图={detect_image.image_url}, 检测框={len(detection_boxes)} 个")
 
         # ── 1. 从对象存储下载原图 ──
         logger.debug("[judge] 阶段1: 从对象存储下载原图...")
-        contents = s3_storage.download_image(detect_image.image_url)
+        contents = self._s3.download_image(detect_image.image_url)
         logger.debug(f"[judge] 阶段1完成: 下载 {len(contents)} bytes")
 
         # ── 2. 预处理：裁剪象限 ──
@@ -93,7 +109,7 @@ async def judge(image_id: str, db: SessionDep) -> Response[JudgeData]:
         ordered_keys = ["top_left_det", "top_right_det", "bottom_left_det"]
         for key in ordered_keys:
             if key not in annotated_1080p:
-                raise HTTPException(status_code=400, detail=f"缺少标注图: {key}")
+                raise ValueError(f"缺少标注图: {key}")
 
         saved_dir = save_debug_images(annotated_1080p, suspect_compressed)
         logger.info(f"[judge] 阶段5: 图片已保存至 {saved_dir}")
@@ -102,45 +118,55 @@ async def judge(image_id: str, db: SessionDep) -> Response[JudgeData]:
         logger.debug("[judge] 阶段5准备就绪: 3张标注图 + 1张嫌疑图")
 
         # ── 6. 获取自定义系统提示词和模型提供商配置，调用 LLM ──
-        system_prompt = await get_system_prompt(db)
+        system_prompt = await self._get_system_prompt()
         logger.debug(f"[judge] 系统提示词长度: {len(system_prompt)}")
 
-        provider = await get_active_provider_config(db)
+        provider = await self._provider_repo.get_by_id(provider_id)
         if provider is None:
-            raise HTTPException(status_code=400, detail="未配置模型提供商，请先通过 /v1/provider 接口配置")
+            raise RuntimeError(f"未找到模型提供商: {provider_id}")
+
+        # 验证模型是否已激活
+        activated_models = provider.activated_models or []
+        if model not in activated_models:
+            raise ValueError(f"模型 {model} 未激活，当前已激活模型: {activated_models or '无'}")
 
         client = VisionClient(
-            model=provider.model,
+            model=model,
             base_url=provider.base_url,
             api_key=provider.api_key,
         )
-        result = await client.judge_violation(
+        violated, reason, raw_response = await client.judge_violation(
             annotated_images=annotated_list,
             suspect_image=suspect_compressed,
             system_prompt=system_prompt,
         )
-        logger.debug(f"[judge] 阶段5完成: violated={result.violated}, reason={result.reason}")
+        logger.debug(f"[judge] 阶段5完成: violated={violated}, reason={reason}")
 
         # ── 7. 保存判定结果到数据库 ──
+        from detector.db.tables import JudgeRecord
+
         record = JudgeRecord(
             image_id=image_id,
-            violated=result.violated,
-            reason=result.reason,
+            violated=violated,
+            reason=reason,
+            provider_id=provider_id,
+            model=model,
         )
-        db.add(record)
+        await self._judge_repo.create(record)
         logger.debug("[judge] 判定结果已保存到数据库")
 
         logger.debug("[judge] ========== 判定请求完成 ==========")
-        return Response(
-            data=JudgeData(
-                image_id=image_id,
-                violated=result.violated,
-                reason=result.reason,
-            ),
+        return JudgeData(
+            image_id=image_id,
+            violated=violated,
+            reason=reason,
+            provider_id=provider_id,
+            model=model,
         )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[judge] 判定失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    async def _get_system_prompt(self) -> str:
+        """获取当前生效的系统提示词。"""
+        active = await self._prompt_repo.get_active()
+        if active and active.content:
+            return active.content
+        return settings.default_system_prompt

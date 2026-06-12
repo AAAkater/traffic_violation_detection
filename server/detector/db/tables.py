@@ -59,17 +59,18 @@ class ModelProvider(Base):
     """模型提供商表 — 存储 LLM 判定模型的连接配置。
 
     用户通过接口管理提供商配置，替代环境变量方式。
-    同一时间只能有一个激活的提供商（is_active=True）。
+    每个 Provider 可提供多个模型，通过 OpenAI SDK 的 list models 接口获取。
     """
 
     __tablename__ = "model_providers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, comment="提供商名称")
-    model: Mapped[str] = mapped_column(String(200), nullable=False, comment="模型名称，如 qwen3.7-plus")
     base_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="API 基础 URL")
     api_key: Mapped[str] = mapped_column(String(500), nullable=False, comment="API 密钥")
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否为当前激活的提供商")
+    activated_models: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String, dimensions=1), nullable=True, comment="已激活的模型名称列表"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间"
@@ -86,3 +87,5 @@ class JudgeRecord(Base):
     violated: Mapped[bool] = mapped_column(Boolean, nullable=False, comment="是否闯红灯")
     reason: Mapped[str] = mapped_column(Text, default="", comment="判定理由")
     prompt_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="使用的系统提示词名称")
+    provider_id: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="使用的模型提供商 ID")
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="使用的模型名称")

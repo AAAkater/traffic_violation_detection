@@ -4,18 +4,16 @@
 全程在内存中完成，不涉及文件 I/O。
 """
 
-from __future__ import annotations
-
 import time
 
 import numpy as np
 from PIL import Image
 
-from detector.draw import draw_detections
-from detector.filter import filter_spatial
-from detector.models import TrafficLightDetector
-from detector.models.detect_model import Detection
+from detector.clients.yolo import TrafficLightDetector
+from detector.models.detect import Detection
 from detector.utils import logger
+from detector.utils.draw import draw_detections
+from detector.utils.filter import filter_spatial
 
 # 检测顺序
 DETECT_ORDER: list[str] = ["top_left", "top_right", "bottom_left"]
@@ -64,12 +62,15 @@ def detect_pipeline(
         quadrant_pil[eng_name] = pil_img
 
         logger.debug(f"[{eng_name}] 检测中…")
-        raw = detector.detect(q_img)
+        raw_tuples = detector.detect(q_img)
 
-        if not raw:
+        if not raw_tuples:
             logger.debug(f"[{eng_name}] 检出 0 个")
             per_quadrant_detections[eng_name] = []
             continue
+
+        # 将 YOLO 原始元组转换为 Detection 对象
+        raw = [Detection(bbox=bbox, confidence=conf, class_name=cls) for bbox, conf, cls in raw_tuples]
 
         logger.debug(
             f"[{eng_name}] YOLO检出 {len(raw)} 个: "

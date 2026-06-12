@@ -2,7 +2,9 @@
 
 from PIL import Image, ImageDraw, ImageFont
 
-from detector.models.detect_model import Detection
+from detector.models.detect import Detection
+
+from .log import logger
 
 # ── 检测框颜色（按类别区分） ──
 COLORS: dict[str, tuple[int, int, int]] = {

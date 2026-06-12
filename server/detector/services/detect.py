@@ -1,42 +1,52 @@
-"""检测端点 — 上传图片，返回红绿灯检测框坐标和类别名称，结果持久化到数据库。"""
+"""检测业务逻辑 — 图片上传、YOLO 检测、结果持久化。"""
 
 import io
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from PIL import Image
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from detector.common.response import DetectData, DetectionItem, Response
-from detector.db import DetectImage, DetectionBox, SessionDep, s3_storage
-from detector.detect import detect_pipeline
+from detector.db.storage import S3Storage
+from detector.models.detect import DetectData, DetectionItem
+from detector.pipelines.detect import detect_pipeline
+from detector.repositories.detect import DetectImageRepo, DetectionBoxRepo
 from detector.settings import settings
 from detector.utils import logger
 from detector.utils.image_tools import preprocess_single
 
-router = APIRouter(tags=["detect"])
 
+class DetectService:
+    """检测业务逻辑服务。"""
 
-@router.post("/detect")
-async def detect(image_file: Annotated[UploadFile, File(alias="image_file")], db: SessionDep) -> Response[DetectData]:
-    """上传原始图片，执行 YOLO 检测，返回所有检测框的坐标和类别名称，并保存到数据库。"""
-    contents = await image_file.read()
+    def __init__(self, session: AsyncSession, s3: S3Storage) -> None:
+        self._session = session
+        self._s3 = s3
+        self._image_repo = DetectImageRepo(session)
+        self._box_repo = DetectionBoxRepo(session)
 
-    try:
+    async def detect(self, contents: bytes, filename: str | None) -> DetectData:
+        """执行检测流水线：上传图片 → 预处理 → YOLO 检测 → 保存结果。
+
+        Args:
+            contents: 图片二进制数据。
+            filename: 原始文件名。
+
+        Returns:
+            DetectData 包含 image_id 和检测框列表。
+        """
         logger.debug("[detect] ========== 开始检测请求 ==========")
-        logger.debug(f"[detect] 文件名: {image_file.filename}, 大小: {len(contents)} bytes")
+        logger.debug(f"[detect] 文件名: {filename}, 大小: {len(contents)} bytes")
 
         # ── 0. 生成图片唯一标识 & 上传原始图片到对象存储 ──
         image_id = uuid.uuid4().hex[:16]
-        image_url = s3_storage.upload_bytes(
+        image_url = self._s3.upload_bytes(
             data=contents,
-            filename=image_file.filename,
+            filename=filename,
             prefix="detect",
         )
         logger.info(f"[detect] 原始图片已上传: {image_url}")
 
         # ── 1. 预处理：裁剪象限 ──
-        from PIL import Image
-
         img = Image.open(io.BytesIO(contents))
         quadrants = preprocess_single(img)
         logger.debug(f"[detect] 裁剪出 {len(quadrants)} 个象限")
@@ -64,36 +74,31 @@ async def detect(image_file: Annotated[UploadFile, File(alias="image_file")], db
                 )
 
         # ── 4. 保存检测结果到数据库 ──
-        filename = image_file.filename or "upload"
-        db.add(
+        from detector.db.tables import DetectImage, DetectionBox
+
+        safe_filename = filename or "upload"
+        await self._image_repo.create(
             DetectImage(
                 image_id=image_id,
-                filename=filename,
+                filename=safe_filename,
                 image_url=image_url,
             )
         )
         for item in items:
-            record = DetectionBox(
-                image_id=image_id,
-                quadrant=item.quadrant,
-                bbox=item.bbox,
-                confidence=item.confidence,
-                class_name=item.class_name,
+            await self._box_repo.create(
+                DetectionBox(
+                    image_id=image_id,
+                    quadrant=item.quadrant,
+                    bbox=item.bbox,
+                    confidence=item.confidence,
+                    class_name=item.class_name,
+                )
             )
-            db.add(record)
 
         logger.debug(f"[detect] 检测完成, 共 {len(items)} 个检测框")
         logger.debug("[detect] ========== 检测请求完成 ==========")
 
-        return Response(
-            data=DetectData(
-                image_id=image_id,
-                detections=items,
-            ),
+        return DetectData(
+            image_id=image_id,
+            detections=items,
         )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[detect] 检测失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
