@@ -1,8 +1,7 @@
 """上传历史查询端点 — 分页查询检测记录，包含图片链接、LLM 回复、检测框坐标。"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from detector.common.response import (
     HistoryBoxItem,
@@ -11,16 +10,16 @@ from detector.common.response import (
     HistoryPage,
     Response,
 )
-from detector.db import DetectImage, DetectionBox, JudgeRecord, get_db
+from detector.db import DetectImage, DetectionBox, JudgeRecord, SessionDep
 
-router = APIRouter()
+router = APIRouter(tags=["history"])
 
 
 @router.get("/history")
 async def get_history(
+    db: SessionDep,
     page: int = Query(default=1, ge=1, description="页码，从 1 开始"),
     page_size: int = Query(default=10, ge=1, le=100, description="每页条数"),
-    db: AsyncSession = Depends(get_db),
 ) -> Response[HistoryPage]:
     """分页查询上传历史，包含图片链接、检测框坐标和 LLM 判定结果。"""
     # ── 1. 查总数 ──
@@ -29,12 +28,7 @@ async def get_history(
 
     # ── 2. 分页查 DetectImage ──
     offset = (page - 1) * page_size
-    images_stmt = (
-        select(DetectImage)
-        .order_by(DetectImage.created_at.desc())
-        .offset(offset)
-        .limit(page_size)
-    )
+    images_stmt = select(DetectImage).order_by(DetectImage.created_at.desc()).offset(offset).limit(page_size)
     images = list((await db.execute(images_stmt)).scalars().all())
 
     if not images:

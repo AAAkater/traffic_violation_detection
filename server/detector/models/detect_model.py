@@ -18,9 +18,7 @@ class Detection(BaseModel):
 
     bbox: list[float] = Field(description="[x1, y1, x2, y2] 边界框坐标")
     confidence: float = Field(description="检测置信度")
-    class_name: str = Field(
-        default="", description="类别名称，如 red/green/yellow/off/wait_on"
-    )
+    class_name: str = Field(default="", description="类别名称，如 red/green/yellow/off/wait_on")
 
     @property
     def x1(self) -> float:

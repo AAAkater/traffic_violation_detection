@@ -2,38 +2,32 @@
 
 import io
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from PIL import Image
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from detector.common.response import DetectData, DetectionItem, Response
-from detector.db import DetectImage, DetectionBox, get_db, upload_bytes
+from detector.db import DetectImage, DetectionBox, SessionDep, s3_storage
 from detector.detect import detect_pipeline
 from detector.settings import settings
 from detector.utils import logger
 from detector.utils.image_tools import preprocess_single
 
-router = APIRouter()
+router = APIRouter(tags=["detect"])
 
 
 @router.post("/detect")
-async def detect(
-    image_file: UploadFile = File(..., alias="image_file"),
-    db: AsyncSession = Depends(get_db),
-):
+async def detect(image_file: Annotated[UploadFile, File(alias="image_file")], db: SessionDep) -> Response[DetectData]:
     """上传原始图片，执行 YOLO 检测，返回所有检测框的坐标和类别名称，并保存到数据库。"""
     contents = await image_file.read()
 
     try:
         logger.debug("[detect] ========== 开始检测请求 ==========")
-        logger.debug(
-            f"[detect] 文件名: {image_file.filename}, 大小: {len(contents)} bytes"
-        )
+        logger.debug(f"[detect] 文件名: {image_file.filename}, 大小: {len(contents)} bytes")
 
         # ── 0. 生成图片唯一标识 & 上传原始图片到对象存储 ──
         image_id = uuid.uuid4().hex[:16]
-        image_url = upload_bytes(
+        image_url = s3_storage.upload_bytes(
             data=contents,
             filename=image_file.filename,
             prefix="detect",
@@ -41,16 +35,14 @@ async def detect(
         logger.info(f"[detect] 原始图片已上传: {image_url}")
 
         # ── 1. 预处理：裁剪象限 ──
+        from PIL import Image
+
         img = Image.open(io.BytesIO(contents))
         quadrants = preprocess_single(img)
         logger.debug(f"[detect] 裁剪出 {len(quadrants)} 个象限")
 
         # ── 2. YOLO 检测 ──
-        detect_quadrants = {
-            k: v
-            for k, v in quadrants.items()
-            if k in ("top_left", "top_right", "bottom_left")
-        }
+        detect_quadrants = {k: v for k, v in quadrants.items() if k in ("top_left", "top_right", "bottom_left")}
         _, raw_detections = detect_pipeline(
             quadrant_images=detect_quadrants,
             model_path=settings.yolo_model_path,

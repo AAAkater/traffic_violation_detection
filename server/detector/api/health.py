@@ -2,10 +2,12 @@
 
 from fastapi import APIRouter
 
-router = APIRouter()
+from detector.common.response import Response
+
+router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def health():
+async def health() -> Response[None]:
     """健康检查端点（供 Docker healthcheck 使用）。"""
-    return {"status": "ok"}
+    return Response(data=None)

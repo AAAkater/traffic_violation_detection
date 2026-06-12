@@ -12,7 +12,9 @@ from detector.api.health import router as health_router
 from detector.api.history import router as history_router
 from detector.api.judge import router as judge_router
 from detector.api.prompt import router as prompt_router
-from detector.db import Base, engine
+from detector.api.provider import router as provider_router
+from detector.db import Base, db_engine
+from detector.db.storage import s3_storage
 from detector.settings import settings
 from detector.utils import logger
 
@@ -21,6 +23,7 @@ v1_router = APIRouter(prefix="/v1")
 v1_router.include_router(health_router)
 v1_router.include_router(detect_router)
 v1_router.include_router(prompt_router)
+v1_router.include_router(provider_router)
 v1_router.include_router(judge_router)
 v1_router.include_router(history_router)
 
@@ -44,9 +47,7 @@ def _ensure_model(model_path: str) -> None:
             local_dir=str(path.parent),
         )
     except Exception as e:
-        raise FileNotFoundError(
-            f"无法下载模型权重 ({slug})，请检查网络或手动放置到 {path}。\n错误: {e}"
-        ) from e
+        raise FileNotFoundError(f"无法下载模型权重 ({slug})，请检查网络或手动放置到 {path}。\n错误: {e}") from e
 
     logger.info(f"模型下载完成: {path}")
 
@@ -59,17 +60,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"  yolo_model_path    = {settings.yolo_model_path!r}")
     logger.info(f"  yolo_conf_threshold = {settings.yolo_conf_threshold}")
     logger.info(f"  yolo_device         = {settings.yolo_device!r}")
-    logger.info(f"  judge_model        = {settings.judge_model!r}")
-    logger.info(f"  judge_base_url     = {settings.judge_base_url!r}")
-    logger.info(
-        f"  judge_api_key      = {'***' if settings.judge_api_key else '(empty)'}"
-    )
+    logger.info("  模型提供商配置: 通过 /v1/provider 接口管理")
     logger.info("=" * 50)
 
     _ensure_model(settings.yolo_model_path)
 
+    s3_storage.ensure_bucket(settings.s3_bucket)
+    logger.info(f"[storage] S3Storage 已初始化: endpoint={settings.s3_endpoint!r}, bucket={settings.s3_bucket!r}")
+
     # 创建数据库表（如果不存在）
-    async with engine.begin() as conn:
+    async with db_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("数据库表检查完成")
 

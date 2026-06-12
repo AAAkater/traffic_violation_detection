@@ -73,9 +73,7 @@ def detect_pipeline(
 
         logger.debug(
             f"[{eng_name}] YOLO检出 {len(raw)} 个: "
-            + ", ".join(
-                f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})" for d in raw
-            )
+            + ", ".join(f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})" for d in raw)
         )
 
         vehicle = filter_spatial(
@@ -87,9 +85,7 @@ def detect_pipeline(
         per_quadrant_detections[eng_name] = vehicle
 
         if vehicle:
-            logger.debug(
-                f"[{eng_name}] 检出成功, all={len(raw)} vehicle={len(vehicle)}"
-            )
+            logger.debug(f"[{eng_name}] 检出成功, all={len(raw)} vehicle={len(vehicle)}")
         else:
             logger.debug(f"[{eng_name}] 未检出")
 

@@ -22,9 +22,7 @@ class DetectionItem(BaseModel):
     quadrant: str = Field(
         description="所属象限: top_left(左上-红灯区) / top_right(右上-绿灯区) / bottom_left(左下-黄灯区)"
     )
-    bbox: list[float] = Field(
-        description="[x1, y1, x2, y2] 边界框坐标（原始图片坐标系）"
-    )
+    bbox: list[float] = Field(description="[x1, y1, x2, y2] 边界框坐标（原始图片坐标系）")
     confidence: float = Field(description="检测置信度")
     class_name: str = Field(description="类别名称，如 red/green/yellow/off/wait_on")
 
@@ -69,9 +67,7 @@ class HistoryItem(BaseModel):
     image_url: str | None = Field(default=None, description="原始图片 URL")
     created_at: str = Field(description="上传时间")
     detections: list[HistoryBoxItem] = Field(description="检测框列表")
-    judge: HistoryJudgeItem | None = Field(
-        default=None, description="判定结果（未判定则为 None）"
-    )
+    judge: HistoryJudgeItem | None = Field(default=None, description="判定结果（未判定则为 None）")
 
 
 class HistoryPage(BaseModel):
@@ -82,3 +78,34 @@ class HistoryPage(BaseModel):
     page: int = Field(description="当前页码（从 1 开始）")
     page_size: int = Field(description="每页条数")
     total_pages: int = Field(description="总页数")
+
+
+class ProviderData(BaseModel):
+    """模型提供商配置数据。"""
+
+    id: int = Field(description="提供商 ID")
+    name: str = Field(description="提供商名称")
+    model: str = Field(description="模型名称")
+    base_url: str = Field(description="API 基础 URL")
+    api_key: str = Field(description="API 密钥（脱敏）")
+    is_active: bool = Field(description="是否为当前激活的提供商")
+    created_at: str = Field(description="创建时间")
+    updated_at: str = Field(description="更新时间")
+
+
+class ProviderCreate(BaseModel):
+    """创建模型提供商请求体。"""
+
+    name: str = Field(min_length=1, max_length=100, description="提供商名称")
+    model: str = Field(min_length=1, max_length=200, description="模型名称")
+    base_url: str = Field(min_length=1, max_length=500, description="API 基础 URL")
+    api_key: str = Field(min_length=1, max_length=500, description="API 密钥")
+
+
+class ProviderUpdate(BaseModel):
+    """更新模型提供商请求体。"""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100, description="提供商名称")
+    model: str | None = Field(default=None, min_length=1, max_length=200, description="模型名称")
+    base_url: str | None = Field(default=None, min_length=1, max_length=500, description="API 基础 URL")
+    api_key: str | None = Field(default=None, min_length=1, max_length=500, description="API 密钥")

@@ -15,9 +15,7 @@ COLORS: dict[str, tuple[int, int, int]] = {
 
 # ── 标签字体 ──
 try:
-    FONT = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size=24
-    )
+    FONT = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size=24)
 except OSError:
     FONT = ImageFont.load_default()
 
