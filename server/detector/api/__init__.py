@@ -65,8 +65,8 @@ async def lifespan(app: FastAPI):
 
     _ensure_model(settings.yolo_model_path)
 
-    s3_storage.ensure_bucket(settings.s3_bucket)
-    logger.info(f"[storage] S3Storage 已初始化: endpoint={settings.s3_endpoint!r}, bucket={settings.s3_bucket!r}")
+    s3_storage.ensure_bucket(settings.S3_BUCKET_NAME)
+    logger.info(f"[storage] S3Storage 已初始化: endpoint={settings.S3_ENDPOINT!r}, bucket={settings.S3_BUCKET_NAME}")
 
     # 创建数据库表（如果不存在）
     async with db_engine.begin() as conn:

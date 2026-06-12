@@ -35,13 +35,13 @@ class S3Storage:
         endpoint: str,
         access_key: str,
         secret_key: str,
-        bucket: str,
+        bucket_name: str,
     ) -> None:
-        self._endpoint = endpoint
-        self._bucket = bucket
+        self.endpoint = endpoint
+        self.bucket_name = bucket_name
         self._client = boto3.client(
             "s3",
-            endpoint_url=self._endpoint,
+            endpoint_url=self.endpoint,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             config=BotoConfig(signature_version="s3v4"),
@@ -49,7 +49,7 @@ class S3Storage:
 
     def ensure_bucket(self, bucket: str | None = None) -> None:
         """确保存储桶存在，不存在则创建。"""
-        bucket = bucket or self._bucket
+        bucket = bucket or self.bucket_name
         try:
             self._client.create_bucket(Bucket=bucket)
             logger.info(f"[storage] 创建存储桶: {bucket}")
@@ -93,7 +93,7 @@ class S3Storage:
             ContentType=content_type,
         )
 
-        url = f"{self._endpoint}/{bucket}/{object_key}"
+        url = f"{self.endpoint}/{bucket}/{object_key}"
         logger.debug(f"[storage] 上传成功: {url}")
         return url
 
@@ -107,9 +107,9 @@ class S3Storage:
         Returns:
             图片的二进制数据。
         """
-        bucket = bucket or self._bucket
+        bucket = bucket or self.bucket_name
         # 从 URL 中提取 object_key: endpoint/bucket/key → key
-        prefix = f"{self._endpoint}/{bucket}/"
+        prefix = f"{self.endpoint}/{bucket}/"
         if not image_url.startswith(prefix):
             raise ValueError(f"image_url 不属于当前 S3 bucket: {image_url}")
         object_key = image_url[len(prefix) :]
@@ -156,8 +156,8 @@ class S3Storage:
 
 # ── 全局存储实例（由 lifespan 在启动时初始化） ────────────────
 s3_storage: S3Storage = S3Storage(
-    endpoint=settings.s3_endpoint,
-    access_key=settings.s3_access_key,
-    secret_key=settings.s3_secret_key,
-    bucket=settings.s3_bucket,
+    endpoint=settings.S3_ENDPOINT,
+    access_key=settings.S3_ACCESS_KEY,
+    secret_key=settings.S3_SECRET_KEY,
+    bucket_name=settings.S3_BUCKET_NAME,
 )
