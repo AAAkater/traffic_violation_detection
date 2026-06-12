@@ -6,5 +6,7 @@ export function judge(params: {
   provider_id: number
   model: string
 }): Promise<JudgeData> {
-  return apiClient.post<JudgeData>('/v1/judge', null, { params }).then((res) => res.data)
+  return apiClient
+    .post<JudgeData>('/v1/judge', null, { params, timeout: 120000 })
+    .then((res) => res.data)
 }
