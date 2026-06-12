@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { useMessage } from '@/composables/useMessage'
 import { useProviderStore } from '@/stores/provider'
-import { NButton, NList, NListItem, NTag, NSpin, NSpace, NPopconfirm } from 'naive-ui'
-import { shallowRef, onMounted, h } from 'vue'
+import { NButton, NSpin, NDataTable, NPagination, NInput } from 'naive-ui'
+import { shallowRef, computed, onMounted, h, watch } from 'vue'
 
 const props = defineProps<{
   providerId: number
@@ -13,9 +13,23 @@ const { showSuccess, showError } = useMessage()
 const isLoading = shallowRef(false)
 const allModels = shallowRef<{ id: string }[]>([])
 const activatedModelSet = shallowRef<Set<string>>(new Set())
+const searchQuery = shallowRef('')
+const currentPage = shallowRef(1)
+const pageSize = shallowRef(10)
 
-onMounted(async () => {
-  await loadData()
+const filteredModels = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return allModels.value
+  return allModels.value.filter((m) => m.id.toLowerCase().includes(q))
+})
+
+const paginatedModels = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredModels.value.slice(start, start + pageSize.value)
+})
+
+watch(searchQuery, () => {
+  currentPage.value = 1
 })
 
 async function loadData() {
@@ -53,30 +67,58 @@ async function handleDeactivate(model: string) {
     showError(e instanceof Error ? e.message : '停用失败')
   }
 }
+
+const columns = computed(() => [
+  { title: '模型名称', key: 'id', ellipsis: { tooltip: true } },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 80,
+    render: (row: { id: string }) => {
+      if (activatedModelSet.value.has(row.id)) {
+        return h(
+          NButton,
+          { size: 'tiny', type: 'warning', onClick: () => handleDeactivate(row.id) },
+          () => '停用',
+        )
+      }
+      return h(
+        NButton,
+        { size: 'tiny', type: 'primary', onClick: () => handleActivate(row.id) },
+        () => '激活',
+      )
+    },
+  },
+])
+
+onMounted(() => {
+  loadData()
+})
 </script>
 
 <template>
-  <NSpin :show="isLoading">
-    <NList class="w-96 max-w-full">
-      <NListItem v-for="model in allModels" :key="model.id">
-        <div class="flex w-full items-center justify-between">
-          <span>{{ model.id }}</span>
-          <NButton
-            v-if="activatedModelSet.has(model.id)"
-            size="small"
-            type="warning"
-            @click="handleDeactivate(model.id)"
-          >
-            停用
-          </NButton>
-          <NButton v-else size="small" type="primary" @click="handleActivate(model.id)">
-            激活
-          </NButton>
-        </div>
-      </NListItem>
-      <NListItem v-if="allModels.length === 0">
-        <div class="py-8 w-full text-center text-gray-400">暂无可用的模型</div>
-      </NListItem>
-    </NList>
-  </NSpin>
+  <div style="width: 560px" class="bg-white dark:bg-gray-800 rounded-lg p-3">
+    <div class="mb-3">
+      <NInput v-model:value="searchQuery" placeholder="搜索模型名称..." clearable />
+    </div>
+    <NSpin :show="isLoading">
+      <NDataTable
+        :columns="columns"
+        :data="paginatedModels"
+        :bordered="false"
+        :single-line="false"
+        max-height="400"
+      />
+      <div v-if="filteredModels.length > pageSize" class="flex justify-center pt-3">
+        <NPagination
+          v-model:page="currentPage"
+          v-model:page-size="pageSize"
+          :item-count="filteredModels.length"
+          :page-sizes="[10, 20, 50, 100]"
+          show-size-picker
+          :page-slot="7"
+        />
+      </div>
+    </NSpin>
+  </div>
 </template>
