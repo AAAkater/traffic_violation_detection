@@ -25,3 +25,4 @@ output/
 # Misc
 *.md
 __pycache__
+.agents
