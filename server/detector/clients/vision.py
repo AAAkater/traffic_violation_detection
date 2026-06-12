@@ -80,7 +80,7 @@ class VisionClient:
             '{"violated": true/false, "reason": "判定理由"}'
         )
 
-        prompt = system_prompt if system_prompt is not None else _default_prompt
+        prompt = system_prompt if system_prompt else _default_prompt
 
         # 构建 API 请求内容
         content: list[ChatCompletionContentPartImageParam | ChatCompletionContentPartTextParam] = [
