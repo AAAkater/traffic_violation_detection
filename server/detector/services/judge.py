@@ -105,14 +105,17 @@ class JudgeService:
         logger.debug("[judge] 阶段4完成: 压缩并重绘完成")
 
         # ── 5. 保存本地、传给 LLM ──
-        logger.debug("[judge] 阶段5: 保存图片并调用 LLM 判定...")
+        logger.debug("[judge] 阶段5: 准备图片并调用 LLM 判定...")
         ordered_keys = ["top_left_det", "top_right_det", "bottom_left_det"]
         for key in ordered_keys:
             if key not in annotated_1080p:
                 raise ValueError(f"缺少标注图: {key}")
 
-        saved_dir = save_debug_images(annotated_1080p, suspect_compressed)
-        logger.info(f"[judge] 阶段5: 图片已保存至 {saved_dir}")
+        if settings.IS_DEV:
+            saved_dir = save_debug_images(annotated_1080p, suspect_compressed)
+            logger.info(f"[judge] 阶段5: 调试图片已保存至 {saved_dir}")
+        else:
+            logger.debug("[judge] 阶段5: 非开发模式，跳过图片保存")
 
         annotated_list = [annotated_1080p[k] for k in ordered_keys]
         logger.debug("[judge] 阶段5准备就绪: 3张标注图 + 1张嫌疑图")
@@ -140,7 +143,9 @@ class JudgeService:
             suspect_image=suspect_compressed,
             system_prompt=system_prompt,
         )
-        logger.debug(f"[judge] 阶段5完成: violated={violated}, reason={reason}")
+        logger.debug(f"[judge] LLM 判定结果 → violated={violated}")
+        logger.debug(f"[judge] LLM 判定理由 → reason={reason}")
+        logger.debug("[judge] 阶段5完成")
 
         # ── 7. 保存判定结果到数据库 ──
         from detector.db.tables import JudgeRecord
