@@ -13,4 +13,4 @@ logger.add(
     level="DEBUG",
     enqueue=True,
 )
-logger.add(sys.stderr, level="DEBUG" if settings.IS_DEV else "INFO")
+logger.add(sys.stderr, level="DEBUG" if settings.SYSTEM_DEV else "INFO")

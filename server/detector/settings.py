@@ -24,17 +24,19 @@ class Settings(BaseSettings):
     )
 
     # ── 运行模式 ──
-    IS_DEV: bool = False
+    SYSTEM_DEV: bool = False
     """开发模式：为 True 时日志输出 DEBUG 级别到控制台。"""
+    SYSTEM_PORT: int = 8010
+    """系统运行端口。"""
 
     # ── 检测模块 ──
-    yolo_model_path: str = ""
+    YOLO_MODEL_PATH: str = ""
     """YOLO 模型权重路径。"""
 
-    yolo_conf_threshold: float = 0.4
+    YOLO_CONF_THRESHOLD: float = 0.4
     """YOLO 检测置信度阈值。"""
 
-    yolo_device: str = "cuda"
+    YOLO_DEVICE: str = "cuda"
     """推理设备：\"cuda\" 使用 GPU，\"cpu\" 使用 CPU，\"cuda:0\" 指定具体 GPU。"""
 
     # ── 默认系统提示词 ──
@@ -42,19 +44,19 @@ class Settings(BaseSettings):
     """默认系统提示词，为空时使用 VisionClient 内置提示词。"""
 
     # ── 数据库 ──
-    POSTGRES_SERVER: str = "localhost"
+    DB_SERVER: str = "localhost"
     """数据库主机地址。"""
 
-    POSTGRES_PORT: int = 5432
+    DB_PORT: int = 5432
     """数据库端口。"""
 
-    POSTGRES_USER: str = "ai"
+    DB_USER: str = "tvd"
     """数据库用户名。"""
 
-    POSTGRES_PASSWORD: str = "ai123"
+    DB_PASSWORD: str = "tvd123"
     """数据库密码。"""
 
-    POSTGRES_DB: str = "dev"
+    DB_NAME: str = "tvd"
     """数据库名称。"""
 
     @computed_field
@@ -63,11 +65,11 @@ class Settings(BaseSettings):
         """自动拼接的数据库连接 URL。"""
         return PostgresDsn.build(
             scheme="postgresql+asyncpg",
-            username=self.POSTGRES_USER,
-            password=self.POSTGRES_PASSWORD,
-            host=self.POSTGRES_SERVER,
-            port=self.POSTGRES_PORT,
-            path=self.POSTGRES_DB,
+            username=self.DB_USER,
+            password=self.DB_PASSWORD,
+            host=self.DB_SERVER,
+            port=self.DB_PORT,
+            path=self.DB_NAME,
         )
 
     # ── 对象存储 (S3 兼容) ──
@@ -77,13 +79,13 @@ class Settings(BaseSettings):
     S3_PORT: int = 9000
     """S3 兼容服务端口。"""
 
-    S3_ACCESS_KEY: str = "minioadmin"
+    S3_ACCESS_KEY: str = "tvd"
     """S3 访问密钥。"""
 
-    S3_SECRET_KEY: str = "minioadmin"
+    S3_SECRET_KEY: str = "tvd123"
     """S3 密钥。"""
 
-    S3_BUCKET_NAME: str = "traffic"
+    S3_BUCKET_NAME: str = "tvd"
     """S3 存储桶名称。"""
 
     S3_PUBLIC_ENDPOINT: str = ""

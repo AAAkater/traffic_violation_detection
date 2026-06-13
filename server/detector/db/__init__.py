@@ -34,13 +34,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时打印全局配置并确保模型就绪。"""
     logger.info("=" * 50)
     logger.info("加载全局配置 Settings:")
-    logger.info(f"  yolo_model_path    = {settings.yolo_model_path!r}")
-    logger.info(f"  yolo_conf_threshold = {settings.yolo_conf_threshold}")
-    logger.info(f"  yolo_device         = {settings.yolo_device!r}")
+    logger.info(f"  yolo_model_path    = {settings.YOLO_MODEL_PATH!r}")
+    logger.info(f"  yolo_conf_threshold = {settings.YOLO_CONF_THRESHOLD}")
+    logger.info(f"  yolo_device         = {settings.YOLO_DEVICE!r}")
     logger.info("  模型提供商配置: 通过 /v1/provider 接口管理")
     logger.info("=" * 50)
 
-    TrafficLightDetector.ensure_model(settings.yolo_model_path)
+    TrafficLightDetector.ensure_model(settings.YOLO_MODEL_PATH)
 
     s3_storage.ensure_bucket(settings.S3_BUCKET_NAME)
     logger.info(f"[storage] S3Storage 已初始化: endpoint={settings.S3_ENDPOINT!r}, bucket={settings.S3_BUCKET_NAME}")

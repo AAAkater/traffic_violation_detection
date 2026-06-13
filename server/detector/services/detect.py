@@ -55,9 +55,9 @@ class DetectService:
         detect_quadrants = {k: v for k, v in quadrants.items() if k in ("top_left", "top_right", "bottom_left")}
         _, raw_detections = detect_pipeline(
             quadrant_images=detect_quadrants,
-            model_path=settings.yolo_model_path,
-            conf_threshold=settings.yolo_conf_threshold,
-            device=settings.yolo_device,
+            model_path=settings.YOLO_MODEL_PATH,
+            conf_threshold=settings.YOLO_CONF_THRESHOLD,
+            device=settings.YOLO_DEVICE,
         )
 
         # ── 3. 汇总检测结果 ──

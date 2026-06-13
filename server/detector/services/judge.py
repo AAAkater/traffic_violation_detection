@@ -111,7 +111,7 @@ class JudgeService:
             if key not in annotated_1080p:
                 raise ValueError(f"缺少标注图: {key}")
 
-        if settings.IS_DEV:
+        if settings.SYSTEM_DEV:
             saved_dir = save_debug_images(annotated_1080p, suspect_compressed)
             logger.info(f"[judge] 阶段5: 调试图片已保存至 {saved_dir}")
         else:
