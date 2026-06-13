@@ -44,11 +44,11 @@ services:
       - "4321:4321"
     volumes:
       # 模型权重：不设置路径时自动从 ModelScope 下载
-      - ./volumes/models:/app/models
+      - ./volumes/server/models:/app/models
       # 日志持久化（可选）
-      - ./volumes/logs:/app/logs
+      - ./volumes/server/logs:/app/logs
       # YOLO 配置持久化
-      - ./volumes/configs:/app/configs
+      - ./volumes/server/configs:/app/configs
     environment:
       # ── 运行模式 ──
       - IS_DEV=${IS_DEV:-false}
