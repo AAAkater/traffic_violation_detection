@@ -10,7 +10,6 @@ from datetime import datetime
 
 import boto3
 from boto3.session import Config as BotoConfig
-from botocore.exceptions import ClientError
 
 from detector.settings import settings
 from detector.utils import logger
@@ -64,20 +63,11 @@ class S3Storage:
         bucket: str | None = None,
         prefix: str = "traffic",
     ) -> str:
-        """上传二进制数据到对象存储，返回可访问的 URL。
+        """上传二进制数据到对象存储，返回 object_key。
 
-        Args:
-            data: 图片二进制数据。
-            filename: 原始文件名（用于扩展名推断）。
-            content_type: MIME 类型。
-            bucket: 存储桶名称，默认使用初始化时的 bucket。
-            prefix: 对象键前缀（按日期组织）。
-
-        Returns:
-            上传后的完整 URL。
+        object_key 格式: {prefix}/{YYYY-MM-DD}/{uuid}.{ext}
         """
         bucket = bucket or self.bucket_name
-        # 生成对象键: prefix/YYYY-MM-DD/uuid.ext
         ext = "jpg"
         if filename and "." in filename:
             ext = filename.rsplit(".", 1)[-1].lower()
@@ -94,31 +84,43 @@ class S3Storage:
             ContentType=content_type,
         )
 
-        url = f"{self.endpoint}/{bucket}/{object_key}"
-        logger.debug(f"[storage] 上传成功: {url}")
-        return url
+        logger.debug(f"[storage] 上传成功: {object_key}")
+        return object_key
 
-    def download_image(self, image_url: str, bucket: str | None = None) -> bytes:
+    def download_image(self, object_key: str, bucket: str | None = None) -> bytes:
         """从对象存储下载图片，返回二进制数据。
 
         Args:
-            image_url: 对象存储中图片的完整 URL。
+            object_key: 上传时返回的文件路径 (key)。
             bucket: 存储桶名称，默认使用初始化时的 bucket。
-
-        Returns:
-            图片的二进制数据。
         """
         bucket = bucket or self.bucket_name
-        # 从 URL 中提取 object_key: endpoint/bucket/key → key
-        prefix = f"{self.endpoint}/{bucket}/"
-        if not image_url.startswith(prefix):
-            raise ValueError(f"image_url 不属于当前 S3 bucket: {image_url}")
-        object_key = image_url[len(prefix) :]
-
         response = self._client.get_object(Bucket=bucket, Key=object_key)
         data = response["Body"].read()
         logger.debug(f"[storage] 下载成功: {object_key}, 大小: {len(data)} bytes")
         return data
+
+    def generate_presigned_url(
+        self,
+        object_key: str,
+        expires: int | None = None,
+        bucket: str | None = None,
+    ) -> str:
+        """生成对象存储文件的预签名 GET URL（短期外链）。
+
+        Args:
+            object_key: 上传时返回的文件路径 (key)。
+            expires: 有效期（秒），默认使用 settings.S3_PRESIGNED_EXPIRES。
+            bucket: 存储桶名称，默认使用初始化时的 bucket。
+        """
+        if expires is None:
+            expires = settings.S3_PRESIGNED_EXPIRES
+        bucket = bucket or self.bucket_name
+        return self._client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": bucket, "Key": object_key},
+            ExpiresIn=expires,
+        )
 
     def upload_pil_image(
         self,

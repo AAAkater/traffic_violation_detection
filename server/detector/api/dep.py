@@ -25,8 +25,8 @@ async def _get_detect_service(session: SessionDep, s3: S3Dep) -> DetectService:
     return DetectService(session=session, s3=s3)
 
 
-async def _get_history_service(session: SessionDep) -> HistoryService:
-    return HistoryService(session=session)
+async def _get_history_service(session: SessionDep, s3: S3Dep) -> HistoryService:
+    return HistoryService(session=session, s3=s3)
 
 
 async def _get_judge_service(session: SessionDep, s3: S3Dep) -> JudgeService:

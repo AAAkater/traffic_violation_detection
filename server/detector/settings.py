@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "traffic"
     """S3 存储桶名称。"""
 
+    S3_PRESIGNED_EXPIRES: int = 600
+    """S3 预签名 URL 有效期（秒），默认 10 分钟。"""
+
     @computed_field
     @property
     def S3_ENDPOINT(self) -> str:

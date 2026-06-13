@@ -57,17 +57,17 @@ class JudgeService:
         detect_image = await self._image_repo.get_by_image_id(image_id)
         if detect_image is None:
             raise ValueError(f"未找到图片: {image_id}")
-        if not detect_image.image_url:
-            raise ValueError(f"图片无对象存储 URL: {image_id}")
+        if not detect_image.object_key:
+            raise ValueError(f"图片无对象存储 key: {image_id}")
 
         detection_boxes = await self._box_repo.list_by_image_id(image_id)
         if not detection_boxes:
             raise ValueError(f"该图片无检测框: {image_id}")
-        logger.debug(f"[judge] 从数据库获取: 原图={detect_image.image_url}, 检测框={len(detection_boxes)} 个")
+        logger.debug(f"[judge] 从数据库获取: 原图={detect_image.object_key}, 检测框={len(detection_boxes)} 个")
 
         # ── 1. 从对象存储下载原图 ──
         logger.debug("[judge] 阶段1: 从对象存储下载原图...")
-        contents = self._s3.download_image(detect_image.image_url)
+        contents = self._s3.download_image(detect_image.object_key)
         logger.debug(f"[judge] 阶段1完成: 下载 {len(contents)} bytes")
 
         # ── 2. 预处理：裁剪象限 ──

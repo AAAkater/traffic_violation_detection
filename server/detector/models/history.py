@@ -23,11 +23,15 @@ class HistoryJudgeItem(BaseModel):
 
 
 class HistoryItem(BaseModel):
-    """单条上传历史记录。"""
+    """单条上传历史记录。
+
+    image_url 是通过 S3 presigned URL 生成的短期外链（默认 10 分钟有效），
+    前端可直接用于 ``<img src>`` 展示。
+    """
 
     image_id: str = Field(description="图片唯一标识")
     filename: str = Field(description="上传文件名")
-    image_url: str | None = Field(default=None, description="原始图片 URL")
+    image_url: str | None = Field(default=None, description="原始图片的预签名外链（短期有效）")
     created_at: str = Field(description="上传时间")
     detections: list[HistoryBoxItem] = Field(description="检测框列表")
     judge: HistoryJudgeItem | None = Field(default=None, description="判定结果（未判定则为 None）")

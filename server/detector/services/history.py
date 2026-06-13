@@ -3,6 +3,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from detector.db.storage import S3Storage
 from detector.db.tables import DetectImage, DetectionBox, JudgeRecord
 from detector.models.history import (
     HistoryBoxItem,
@@ -17,8 +18,9 @@ from detector.repositories.judge import JudgeRecordRepo
 class HistoryService:
     """历史记录查询业务逻辑服务。"""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, s3: S3Storage) -> None:
         self._session = session
+        self._s3 = s3
         self._image_repo = DetectImageRepo(session)
         self._box_repo = DetectionBoxRepo(session)
         self._judge_repo = JudgeRecordRepo(session)
@@ -92,7 +94,7 @@ class HistoryService:
                 HistoryItem(
                     image_id=img.image_id,
                     filename=img.filename,
-                    image_url=img.image_url,
+                    image_url=self._s3.generate_presigned_url(img.object_key) if img.object_key else None,
                     created_at=img.created_at.isoformat() if img.created_at else "",
                     detections=box_items,
                     judge=judge_item,

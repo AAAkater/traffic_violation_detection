@@ -39,12 +39,12 @@ class DetectService:
 
         # ── 0. 生成图片唯一标识 & 上传原始图片到对象存储 ──
         image_id = uuid.uuid4().hex[:16]
-        image_url = self._s3.upload_bytes(
+        object_key = self._s3.upload_bytes(
             data=contents,
             filename=filename,
             prefix="detect",
         )
-        logger.info(f"[detect] 原始图片已上传: {image_url}")
+        logger.info(f"[detect] 原始图片已上传: {object_key}")
 
         # ── 1. 预处理：裁剪象限 ──
         img = Image.open(io.BytesIO(contents))
@@ -81,7 +81,7 @@ class DetectService:
             DetectImage(
                 image_id=image_id,
                 filename=safe_filename,
-                image_url=image_url,
+                object_key=object_key,
             )
         )
         for item in items:

@@ -30,7 +30,7 @@ class DetectImage(Base):
 
     image_id: Mapped[str] = mapped_column(String(32), primary_key=True, comment="图片唯一标识")
     filename: Mapped[str] = mapped_column(String(255), nullable=False, comment="上传文件名")
-    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True, comment="原始图片在对象存储中的 URL")
+    object_key: Mapped[str | None] = mapped_column(String(1024), nullable=True, comment="S3 对象存储中的文件路径 (key)")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, comment="创建时间")
 
 
