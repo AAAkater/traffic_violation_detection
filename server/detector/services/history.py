@@ -94,7 +94,7 @@ class HistoryService:
                 HistoryItem(
                     image_id=img.image_id,
                     filename=img.filename,
-                    image_url=self._s3.generate_presigned_url(img.object_key) if img.object_key else None,
+                    image_url=self._s3.public_url(img.object_key) if img.object_key else None,
                     created_at=img.created_at.isoformat() if img.created_at else "",
                     detections=box_items,
                     judge=judge_item,

@@ -100,26 +100,29 @@ class S3Storage:
         logger.debug(f"[storage] 下载成功: {object_key}, 大小: {len(data)} bytes")
         return data
 
-    def generate_presigned_url(
-        self,
-        object_key: str,
-        expires: int | None = None,
-        bucket: str | None = None,
-    ) -> str:
-        """生成对象存储文件的预签名 GET URL（短期外链）。
+    def public_url(self, object_key: str, bucket: str | None = None) -> str:
+        """生成浏览器可访问的 presigned GET URL。
 
-        Args:
-            object_key: 上传时返回的文件路径 (key)。
-            expires: 有效期（秒），默认使用 settings.S3_PRESIGNED_EXPIRES。
-            bucket: 存储桶名称，默认使用初始化时的 bucket。
+        有 S3_PUBLIC_ENDPOINT 时用公网地址签名（nginx 反代域名），
+        否则用内网地址签名（开发环境直接访问）。
         """
-        if expires is None:
-            expires = settings.S3_PRESIGNED_EXPIRES
         bucket = bucket or self.bucket_name
-        return self._client.generate_presigned_url(
+        public = settings.S3_PUBLIC_ENDPOINT
+        if public:
+            client = boto3.client(
+                "s3",
+                endpoint_url=public,
+                aws_access_key_id=settings.S3_ACCESS_KEY,
+                aws_secret_access_key=settings.S3_SECRET_KEY,
+                config=BotoConfig(signature_version="s3v4"),
+            )
+        else:
+            client = self._client
+
+        return client.generate_presigned_url(
             ClientMethod="get_object",
             Params={"Bucket": bucket, "Key": object_key},
-            ExpiresIn=expires,
+            ExpiresIn=settings.S3_PRESIGNED_EXPIRES,
         )
 
     def upload_pil_image(

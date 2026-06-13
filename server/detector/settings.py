@@ -86,8 +86,14 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "traffic"
     """S3 存储桶名称。"""
 
+    S3_PUBLIC_ENDPOINT: str = ""
+    """S3 对外公开端点，用于生成浏览器可访问的 presigned URL。
+    应设为 nginx 对外域名，如 ``http://your-domain.com``。
+    为空时回退到内网 S3_ENDPOINT。
+    """
+
     S3_PRESIGNED_EXPIRES: int = 600
-    """S3 预签名 URL 有效期（秒），默认 10 分钟。"""
+    """S3 presigned URL 有效期（秒），默认 10 分钟。"""
 
     @computed_field
     @property
