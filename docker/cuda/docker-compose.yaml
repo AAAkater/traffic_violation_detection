@@ -30,7 +30,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./volume/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./volumes/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
   server-cuda:
     build:
@@ -44,11 +44,11 @@ services:
       - "4321:4321"
     volumes:
       # 模型权重：放到旁边的 volume/models/ 目录，启动时自动挂载
-      - ./volume/models:/app/models
+      - ./volumes/models:/app/models
       # 日志持久化（可选）
-      - ./volume/logs:/app/logs
+      - ./volumes/logs:/app/logs
       # YOLO 配置持久化
-      - ./volume/configs:/app/configs
+      - ./volumes/configs:/app/configs
     environment:
       # ── 运行模式 ──
       - IS_DEV=${IS_DEV:-false}

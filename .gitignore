@@ -10,6 +10,6 @@ wheels/
 .venv
 logs
 # Docker volumes
-**/docker/*/volume/
-!**/docker/*/volume/nginx/
+**/docker/*/volumes/
+!**/docker/*/volumes/nginx/
 .env
