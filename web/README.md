@@ -1,23 +1,41 @@
-# web
+# 前端 (web)
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3 + Vite + Naive UI + Tailwind CSS。
 
-## Recommended IDE Setup
+## 本地开发
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+```bash
+cd web
 
-## Recommended Browser Setup
+# 1. 安装依赖
+pnpm install
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+# 2. 配置后端地址
+cp .env.example .env
+# VITE_SERVICE_BASE_URL=http://localhost:8000
 
-## Type Support for `.vue` Imports in TS
+# 3. 启动开发服务器
+pnpm dev
+```
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+Vite 自动将 `/api/v1/*` 代理到后端（`VITE_SERVICE_BASE_URL`），不需要 nginx。
+
+## 生产构建
+
+```bash
+pnpm build-only    # 输出到 dist/
+```
+
+产物通过 nginx 部署，nginx 配置见 `../docker/cuda/volumes/nginx/nginx.conf`。
+
+## 开发工具
+
+```bash
+pnpm lint          # ESLint + Oxlint
+pnpm format        # Prettier
+pnpm type-check    # TypeScript 类型检查
+pnpm test:unit     # Vitest 单元测试
+```
 
 ## Customize configuration
 

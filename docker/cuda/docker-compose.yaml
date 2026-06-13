@@ -43,7 +43,7 @@ services:
     ports:
       - "4321:4321"
     volumes:
-      # 模型权重：放到旁边的 volume/models/ 目录，启动时自动挂载
+      # 模型权重：不设置路径时自动从 ModelScope 下载
       - ./volumes/models:/app/models
       # 日志持久化（可选）
       - ./volumes/logs:/app/logs
