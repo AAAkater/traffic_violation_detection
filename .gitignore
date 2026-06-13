@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 logs
-# Docker volumes — 忽略运行时数据，保留 nginx 配置
-**/docker/*/volumes/*/
-!**/docker/*/volumes/nginx/
+# Docker volumes — 忽略运行时数据
+**/docker/*/volumes/
+!.gitkeep
 .env
