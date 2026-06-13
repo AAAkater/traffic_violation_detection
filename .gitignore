@@ -11,4 +11,5 @@ wheels/
 logs
 # Docker volumes
 **/docker/*/volume/
+!**/docker/*/volume/nginx/
 .env
