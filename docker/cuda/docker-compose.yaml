@@ -1,24 +1,23 @@
 name: tvd
 
 services:
-  postgres:
-    image: postgres:18.4-bookworm
+  db-postgres:
+    image: postgres:18.4-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: test
+      POSTGRES_USER: ${DB_USER:-tvd}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tvd123}
+      POSTGRES_DB: ${DB_NAME:-tvd}
     volumes:
-      - ./volumes/postgres:/var/lib/postgresql
+      - ./volumes/db:/var/lib/postgresql
 
-  rustfs:
+  s3-rustfs:
     image: rustfs/rustfs:latest
     environment:
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-tvd}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-tvd123}
       RUSTFS_CONSOLE_ENABLE: true
     volumes:
-      - ./volumes/rustfs/data:/data
-      - ./volumes/rustfs/logs:/logs
+      - ./volumes/s3:/data
 
   web:
     build:
@@ -38,10 +37,10 @@ services:
       dockerfile: Dockerfile
     image: traffic-violation-detection:cuda
     depends_on:
-      - postgres
-      - rustfs
+      - db-postgres
+      - s3-rustfs
     ports:
-      - "4321:4321"
+      - "${SYSTEM_PORT:-8010}:4321"
     volumes:
       # 模型权重：不设置路径时自动从 ModelScope 下载
       - ./volumes/server/models:/app/models
@@ -51,25 +50,25 @@ services:
       - ./volumes/server/configs:/app/configs
     environment:
       # ── 运行模式 ──
-      - IS_DEV=${IS_DEV:-false}
+      IS_DEV: ${IS_DEV:-false}
       # ── 检测模块 ──
-      - YOLO_MODEL_PATH=/app/models/v1.pt
-      - YOLO_CONF_THRESHOLD=${YOLO_CONF_THRESHOLD:-0.4}
-      - YOLO_DEVICE=${YOLO_DEVICE:-cuda}
+      YOLO_MODEL_PATH: ${YOLO_MODEL_PATH:-/app/models/v1.pt}
+      YOLO_CONF_THRESHOLD: ${YOLO_CONF_THRESHOLD:-0.4}
+      YOLO_DEVICE: ${YOLO_DEVICE:-cuda}
       # ── 数据库 ──
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-test}
+      DB_SERVER: ${DB_SERVER:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-test}
       # ── 对象存储 (S3 兼容) ──
-      - S3_SERVER=${S3_SERVER:-rustfs}
-      - S3_PORT=${S3_PORT:-9000}
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-rustfsadmin}
-      - S3_SECRET_KEY=${S3_SECRET_KEY:-rustfsadmin}
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-traffic}
-      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-}
-      - S3_PRESIGNED_EXPIRES=${S3_PRESIGNED_EXPIRES:-600}
+      S3_SERVER: ${S3_SERVER:-rustfs}
+      S3_PORT: ${S3_PORT:-9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-rustfsadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-rustfsadmin}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traffic}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_PRESIGNED_EXPIRES: ${S3_PRESIGNED_EXPIRES:-600}
     deploy:
       resources:
         reservations:
