@@ -17,7 +17,7 @@ PostgreSQL ─┘                           └─ RustFS
 cd docker/cuda
 
 # 0. 修复 rustfs 数据目录权限（首次部署需要）
-sudo chown -R 10001:10001 ./volumes/rustfs
+sudo chown -R 10001:10001 ./volumes/s3
 
 # 1. 准备模型权重（可选，不设置时首次启动自动下载）
 mkdir -p volume/models
