@@ -25,6 +25,11 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/v1/, ''),
         },
+        '/assets': {
+          target: viteEnv.VITE_S3_BASE_URL,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/assets/, ''),
+        },
       },
     },
   }

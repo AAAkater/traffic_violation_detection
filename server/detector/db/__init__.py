@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
     TrafficLightDetector.ensure_model(settings.YOLO_MODEL_PATH)
 
-    s3_storage.ensure_bucket(settings.S3_BUCKET_NAME)
+    s3_storage.ensure_bucket()
     logger.info(f"[storage] S3Storage 已初始化: endpoint={settings.S3_ENDPOINT!r}, bucket={settings.S3_BUCKET_NAME}")
 
     # 创建数据库表（如果不存在）
