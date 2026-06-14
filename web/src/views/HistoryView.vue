@@ -50,13 +50,6 @@ function goDetail(imageId: string) {
               class="flex cursor-pointer items-center gap-4 rounded-lg border p-4 transition hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
               @click="goDetail(item.image_id)"
             >
-              <img
-                v-if="item.image_url"
-                :src="item.image_url"
-                :alt="item.filename"
-                class="h-16 w-16 rounded object-cover"
-              />
-              <div v-else class="h-16 w-16 rounded bg-gray-200 dark:bg-gray-700" />
               <div class="flex-1">
                 <div class="font-medium">{{ item.filename }}</div>
                 <div class="text-sm text-gray-500">{{ item.created_at }}</div>

@@ -73,13 +73,6 @@ function goHistory() {
             @click="router.push({ name: 'history-detail', params: { imageId: item.image_id } })"
           >
             <div class="flex items-center gap-3">
-              <img
-                v-if="item.image_url"
-                :src="item.image_url"
-                :alt="item.filename"
-                class="h-12 w-12 rounded object-cover"
-              />
-              <div v-else class="h-12 w-12 rounded bg-gray-200 dark:bg-gray-700" />
               <div>
                 <div class="font-medium">{{ item.filename }}</div>
                 <div class="text-sm text-gray-500">{{ item.created_at }}</div>
