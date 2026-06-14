@@ -133,9 +133,9 @@ class S3Storage:
         """生成图片的公开访问 URL。
 
         返回相对路径，由 nginx 反代到 S3，不暴露 S3 端点。
-        格式: /assets/{bucket}/{object_key}
+        格式: /storage/{bucket}/{object_key}
         """
-        return f"/assets/{self.bucket_name}/{object_key}"
+        return f"/storage/{self.bucket_name}/{object_key}"
 
     def upload_pil_image(
         self,
