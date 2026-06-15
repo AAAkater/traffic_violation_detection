@@ -118,6 +118,11 @@ class S3Storage:
         logger.debug(f"[storage] 上传成功: {object_key}")
         return object_key
 
+    def close(self) -> None:
+        """关闭底层 HTTP 连接。"""
+        self._client.close()
+        logger.info("[storage] S3 客户端已关闭")
+
     def download_image(self, object_key: str) -> bytes:
         """从对象存储下载图片，返回二进制数据。
 

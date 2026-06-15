@@ -55,3 +55,8 @@ async def lifespan(app: FastAPI):
     logger.info("数据库表检查完成")
 
     yield
+
+    # ── 关闭资源 ──
+    s3_storage.close()
+    await db_engine.dispose()
+    logger.info("数据库连接池已关闭")
