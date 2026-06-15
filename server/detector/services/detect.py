@@ -1,17 +1,21 @@
-"""检测业务逻辑 — 图片上传、YOLO 检测、结果持久化。"""
+"""检测业务逻辑 — 图片上传、YOLO 检测、空间过滤、结果持久化。"""
 
 import io
+import time
 import uuid
 
+import numpy as np
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from detector.clients.yolo import TrafficLightDetector
 from detector.db.storage import S3Storage
 from detector.models.detect import DetectData, DetectionItem
-from detector.pipelines.detect import detect_pipeline
+from detector.models.detect import Detection as BboxModel
 from detector.repositories.detect import DetectImageRepo, DetectionBoxRepo
 from detector.settings import settings
 from detector.utils import logger
+from detector.utils.filter import filter_spatial
 from detector.utils.image_tools import preprocess_single
 
 
@@ -51,18 +55,54 @@ class DetectService:
         quadrants = preprocess_single(img)
         logger.debug(f"[detect] 裁剪出 {len(quadrants)} 个象限")
 
-        # ── 2. YOLO 检测 ──
-        detect_quadrants = {k: v for k, v in quadrants.items() if k in ("top_left", "top_right", "bottom_left")}
-        _, raw_detections = detect_pipeline(
-            quadrant_images=detect_quadrants,
-            model_path=settings.YOLO_MODEL_PATH,
-            conf_threshold=settings.YOLO_CONF_THRESHOLD,
+        # ── 2. YOLO 检测 + 空间过滤 ──
+        t0 = time.perf_counter()
+        detector = TrafficLightDetector(
+            settings.YOLO_MODEL_PATH,
             device=settings.YOLO_DEVICE,
+            conf_threshold=settings.YOLO_CONF_THRESHOLD,
         )
+
+        per_quadrant_detections: dict[str, list[BboxModel]] = {}
+        detect_quadrants = {k: v for k, v in quadrants.items() if k in ("top_left", "top_right", "bottom_left")}
+
+        for eng_name in ("top_left", "top_right", "bottom_left"):
+            if eng_name not in detect_quadrants:
+                logger.warning(f"缺少象限图: {eng_name}")
+                continue
+
+            pil_img = detect_quadrants[eng_name]
+            q_img = np.array(pil_img.convert("RGB"))[:, :, ::-1].copy()
+            h, w = q_img.shape[:2]
+
+            logger.debug(f"[{eng_name}] 检测中…")
+            raw_tuples = detector.detect(q_img)
+
+            if not raw_tuples:
+                logger.debug(f"[{eng_name}] 检出 0 个")
+                per_quadrant_detections[eng_name] = []
+                continue
+
+            raw = [BboxModel(bbox=bbox, confidence=conf, class_name=cls) for bbox, conf, cls in raw_tuples]
+            logger.debug(
+                f"[{eng_name}] YOLO检出 {len(raw)} 个: "
+                + ", ".join(f"({d.width:.0f}×{d.height:.0f}@{d.confidence:.2f})" for d in raw)
+            )
+
+            vehicle = filter_spatial(raw, image_height=h, image_width=w, label=f"[{eng_name}]")
+            per_quadrant_detections[eng_name] = vehicle
+
+            if vehicle:
+                logger.debug(f"[{eng_name}] 检出成功, all={len(raw)} vehicle={len(vehicle)}")
+            else:
+                logger.debug(f"[{eng_name}] 未检出")
+
+        elapsed = time.perf_counter() - t0
+        logger.info(f"[detect] YOLO检测总耗时: {elapsed:.3f}s")
 
         # ── 3. 汇总检测结果 ──
         items: list[DetectionItem] = []
-        for quadrant_name, dets in raw_detections.items():
+        for quadrant_name, dets in per_quadrant_detections.items():
             for d in dets:
                 items.append(
                     DetectionItem(
