@@ -1,27 +1,79 @@
 <script setup lang="ts">
 import type { DetectionItem } from '@/types/api'
-import { NImage, NCard, NTag } from 'naive-ui'
-import type { CSSProperties } from 'vue'
-import { shallowRef, computed } from 'vue'
+import { splitAndCompressQuadrants, type DetectionBox } from '@/utils/image'
+import { NImage, NImageGroup, useThemeVars } from 'naive-ui'
+import type { GlobalThemeOverrides } from 'naive-ui'
+import { shallowRef, computed, watch } from 'vue'
 
 const { imageUrl, detections } = defineProps<{
   imageUrl: string
   detections: DetectionItem[]
 }>()
 
-const naturalWidth = shallowRef(0)
-const naturalHeight = shallowRef(0)
+const quadrantUrls = shallowRef<Record<string, string>>({})
+const quadrantAspect = shallowRef(1)
 
-const halfW = computed(() => naturalWidth.value / 2)
-const halfH = computed(() => naturalHeight.value / 2)
+// ---- NImageGroup 暗色工具栏适配 ----
+const imageGroupThemeOverrides = computed<NonNullable<GlobalThemeOverrides['Image']>>(() => {
+  const { popoverColor, boxShadow2, textColor2, borderRadius } = useThemeVars().value
+  return {
+    toolbarColor: popoverColor,
+    toolbarBoxShadow: boxShadow2,
+    toolbarIconColor: textColor2,
+    toolbarBorderRadius: borderRadius,
+  }
+})
 
-function onImageLoad(e: Event) {
-  const img = e.target as HTMLImageElement
-  naturalWidth.value = img.naturalWidth
-  naturalHeight.value = img.naturalHeight
+function groupBoxes(list: DetectionItem[]): Record<string, DetectionBox[]> {
+  const map: Record<string, DetectionBox[]> = {
+    top_left: [],
+    top_right: [],
+    bottom_left: [],
+    bottom_right: [],
+  }
+  for (const d of list) {
+    const boxes = map[d.quadrant]
+    if (boxes) {
+      boxes.push({ bbox: d.bbox, class_name: d.class_name, confidence: d.confidence })
+    }
+  }
+  return map
 }
 
-const quadrantOrder = ['top_left', 'top_right', 'bottom_left', 'bottom_right']
+/**
+ * 用 fetch 下载图片转 blob URL（绕过 Canvas CORS 污染）。
+ * 对齐后端：先拿原始分辨率图，Canvas 裁剪 + 压缩 + 画框。
+ */
+async function processImage(url: string) {
+  if (!url) return
+  const boxesByQuadrant = groupBoxes(detections)
+
+  const resp = await fetch(url)
+  const blob = await resp.blob()
+  const blobUrl = URL.createObjectURL(blob)
+
+  const img = new Image()
+  img.onload = () => {
+    const hw = Math.floor(img.naturalWidth / 2)
+    const hh = Math.floor(img.naturalHeight / 2)
+    quadrantAspect.value = hw / hh
+    quadrantUrls.value = splitAndCompressQuadrants(img, boxesByQuadrant)
+    // 释放临时 blob
+    URL.revokeObjectURL(blobUrl)
+  }
+  img.onerror = () => {
+    URL.revokeObjectURL(blobUrl)
+  }
+  img.src = blobUrl
+}
+
+// 首次加载
+processImage(imageUrl)
+
+// imageUrl 变化时重新处理
+watch(() => imageUrl, processImage)
+
+const quadrantOrder = ['top_left', 'top_right', 'bottom_left', 'bottom_right'] as const
 
 const quadrantLabel: Record<string, string> = {
   top_left: '↖ 左上象限',
@@ -29,94 +81,25 @@ const quadrantLabel: Record<string, string> = {
   bottom_left: '↙ 左下象限',
   bottom_right: '↘ 右下象限',
 }
-
-function getDetections(quadrant: string): DetectionItem[] {
-  return detections.filter((d) => d.quadrant === quadrant)
-}
-
-/** Position the full image (scaled 200%) so only the relevant quadrant fills the container */
-function getImageOffset(quadrant: string): CSSProperties {
-  const base: CSSProperties = {
-    position: 'absolute',
-    display: 'block',
-    width: '200%',
-    height: '200%',
-    maxWidth: 'none',
-    objectFit: 'fill',
-  }
-  switch (quadrant) {
-    case 'top_left':
-      return { ...base, left: '0', top: '0' }
-    case 'top_right':
-      return { ...base, left: '-100%', top: '0' }
-    case 'bottom_left':
-      return { ...base, left: '0', top: '-100%' }
-    case 'bottom_right':
-      return { ...base, left: '-100%', top: '-100%' }
-    default:
-      return base
-  }
-}
-
-function getBoxStyle(bbox: [number, number, number, number]): CSSProperties {
-  const [x1, y1, x2, y2] = bbox
-  return {
-    left: `${x1 * 100}%`,
-    top: `${y1 * 100}%`,
-    width: `${(x2 - x1) * 100}%`,
-    height: `${(y2 - y1) * 100}%`,
-  }
-}
-
-const boxColors: Record<string, string> = {
-  red: 'border-red-500 bg-red-500/15',
-  green: 'border-green-500 bg-green-500/15',
-  yellow: 'border-yellow-500 bg-yellow-500/15',
-}
-
-function getBoxColor(className: string): string {
-  return boxColors[className] ?? 'border-blue-500 bg-blue-500/15'
-}
 </script>
 
 <template>
   <div class="w-full">
-    <img :src="imageUrl" alt="" class="hidden" @load="onImageLoad" />
-
-    <div v-if="naturalWidth > 0" class="grid grid-cols-2 gap-3">
-      <NCard
-        v-for="q in quadrantOrder"
-        :key="q"
-        size="small"
-        :title="quadrantLabel[q]"
-        header-class="text-sm! font-semibold! py-2! px-3!"
-        content-class="p-0!"
-      >
-        <div class="relative overflow-hidden" :style="{ aspectRatio: `${halfW}/${halfH}` }">
-          <NImage :src="imageUrl" :img-props="{ style: getImageOffset(q) }" />
-          <div
-            v-for="(det, i) in getDetections(q)"
-            :key="i"
-            :style="getBoxStyle(det.bbox)"
-            :class="['absolute border-2 rounded', getBoxColor(det.class_name)]"
-          >
-            <NTag
-              :type="
-                det.class_name === 'red'
-                  ? 'error'
-                  : det.class_name === 'yellow'
-                    ? 'warning'
-                    : 'success'
-              "
-              size="small"
-              class="absolute! -top-3! left-0!"
-              round
-            >
-              {{ det.class_name }} {{ (det.confidence * 100).toFixed(0) }}%
-            </NTag>
+    <div v-if="Object.keys(quadrantUrls).length > 0" class="grid grid-cols-2 gap-3">
+      <NImageGroup :theme-overrides="imageGroupThemeOverrides">
+        <div
+          v-for="q in quadrantOrder"
+          :key="q"
+          class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800"
+        >
+          <div class="px-3 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300">
+            {{ quadrantLabel[q] }}
+          </div>
+          <div :style="{ aspectRatio: `${quadrantAspect}` }">
+            <NImage :src="quadrantUrls[q]" />
           </div>
         </div>
-      </NCard>
+      </NImageGroup>
     </div>
 
     <div
