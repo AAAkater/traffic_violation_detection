@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DetectionItem } from '@/types/api'
-import { NModal } from 'naive-ui'
+import { NImage, NCard, NTag } from 'naive-ui'
 import type { CSSProperties } from 'vue'
 import { shallowRef, computed } from 'vue'
 
@@ -11,14 +11,6 @@ const { imageUrl, detections } = defineProps<{
 
 const naturalWidth = shallowRef(0)
 const naturalHeight = shallowRef(0)
-const previewQuadrant = shallowRef<string | null>(null)
-
-const showPreview = computed({
-  get: () => previewQuadrant.value !== null,
-  set: (v: boolean) => {
-    if (!v) previewQuadrant.value = null
-  },
-})
 
 const halfW = computed(() => naturalWidth.value / 2)
 const halfH = computed(() => naturalHeight.value / 2)
@@ -82,18 +74,8 @@ const boxColors: Record<string, string> = {
   yellow: 'border-yellow-500 bg-yellow-500/15',
 }
 
-const labelColors: Record<string, string> = {
-  red: 'bg-red-500 text-white',
-  green: 'bg-green-500 text-white',
-  yellow: 'bg-yellow-500 text-black',
-}
-
 function getBoxColor(className: string): string {
   return boxColors[className] ?? 'border-blue-500 bg-blue-500/15'
-}
-
-function getLabelColor(className: string): string {
-  return labelColors[className] ?? 'bg-blue-500 text-white'
 }
 </script>
 
@@ -101,69 +83,47 @@ function getLabelColor(className: string): string {
   <div class="w-full">
     <img :src="imageUrl" alt="" class="hidden" @load="onImageLoad" />
 
-    <div v-if="naturalWidth > 0" class="grid grid-cols-2 gap-2">
-      <div
+    <div v-if="naturalWidth > 0" class="grid grid-cols-2 gap-3">
+      <NCard
         v-for="q in quadrantOrder"
         :key="q"
-        class="cursor-pointer overflow-hidden rounded-lg border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all"
-        @click="previewQuadrant = q"
+        size="small"
+        :title="quadrantLabel[q]"
+        header-class="text-sm! font-semibold! py-2! px-3!"
+        content-class="p-0!"
       >
-        <div class="bg-gray-100 px-3 py-1.5 text-sm font-semibold text-gray-600">
-          {{ quadrantLabel[q] ?? q }}
-        </div>
         <div class="relative overflow-hidden" :style="{ aspectRatio: `${halfW}/${halfH}` }">
-          <img :src="imageUrl" alt="" :style="getImageOffset(q)" />
+          <NImage :src="imageUrl" :img-props="{ style: getImageOffset(q) }" />
           <div
             v-for="(det, i) in getDetections(q)"
             :key="i"
             :style="getBoxStyle(det.bbox)"
             :class="['absolute border-2 rounded', getBoxColor(det.class_name)]"
           >
-            <span
-              :class="[
-                'absolute -top-5.5 left-0 text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap',
-                getLabelColor(det.class_name),
-              ]"
+            <NTag
+              :type="
+                det.class_name === 'red'
+                  ? 'error'
+                  : det.class_name === 'yellow'
+                    ? 'warning'
+                    : 'success'
+              "
+              size="small"
+              class="absolute! -top-3! left-0!"
+              round
             >
               {{ det.class_name }} {{ (det.confidence * 100).toFixed(0) }}%
-            </span>
+            </NTag>
           </div>
         </div>
-      </div>
+      </NCard>
     </div>
 
-    <div v-else class="flex items-center justify-center rounded-lg border border-gray-200 py-12">
-      <span class="text-gray-400">图片加载中…</span>
+    <div
+      v-else
+      class="flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 py-12"
+    >
+      <span class="text-gray-400 dark:text-gray-500">图片加载中…</span>
     </div>
-
-    <!-- Preview Modal -->
-    <NModal v-model:show="showPreview" title="象限预览" style="width: 90vw; max-width: 1200px">
-      <div v-if="previewQuadrant" class="bg-white dark:bg-gray-800 rounded-lg p-6">
-        <div class="text-center text-lg font-semibold mb-4">
-          {{ quadrantLabel[previewQuadrant] ?? previewQuadrant }}
-        </div>
-        <div
-          class="relative overflow-hidden rounded-lg border border-gray-200"
-          :style="{ width: '100%', aspectRatio: `${naturalWidth / 2}/${naturalHeight / 2}` }"
-        >
-          <img :src="imageUrl" alt="" :style="getImageOffset(previewQuadrant)" />
-          <div
-            v-for="(det, i) in getDetections(previewQuadrant!)"
-            :key="i"
-            :style="getBoxStyle(det.bbox)"
-            :class="['absolute border-2 rounded', getBoxColor(det.class_name)]"
-          >
-            <span
-              :class="[
-                'absolute -top-5.5 left-0 text-xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap',
-                getLabelColor(det.class_name),
-              ]"
-            >
-              {{ det.class_name }} {{ (det.confidence * 100).toFixed(0) }}%
-            </span>
-          </div>
-        </div>
-      </div>
-    </NModal>
   </div>
 </template>
