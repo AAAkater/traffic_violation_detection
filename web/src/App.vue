@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { CameraOutline, TimeOutline, SettingsOutline, HomeOutline } from '@vicons/ionicons5'
+import { useThemeStore } from '@/stores/theme'
+import {
+  CameraOutline,
+  TimeOutline,
+  SettingsOutline,
+  HomeOutline,
+  SunnyOutline,
+  MoonOutline,
+  LaptopOutline,
+} from '@vicons/ionicons5'
 import {
   NLayout,
   NLayoutSider,
@@ -8,15 +17,73 @@ import {
   NConfigProvider,
   NMessageProvider,
   NDialogProvider,
+  NButton,
+  NIcon,
+  NDropdown,
+  darkTheme,
   type MenuOption,
+  type DropdownOption,
 } from 'naive-ui'
-import { shallowRef, h, watch } from 'vue'
+import { shallowRef, h, watch, watchEffect, onMounted, onUnmounted } from 'vue'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
 const route = useRoute()
+const themeStore = useThemeStore()
 
 const collapsed = shallowRef(false)
+
+// ---- 同步 <html class="dark"> ----
+function syncHtmlClass() {
+  document.documentElement.classList.toggle('dark', themeStore.isDark)
+}
+
+watchEffect(syncHtmlClass)
+
+onMounted(() => {
+  themeStore.initSystemListener()
+  // 初始化时立即同步一次（覆盖防闪烁脚本的结果，确保与 persisted mode 一致）
+  syncHtmlClass()
+})
+
+onUnmounted(() => {
+  themeStore.teardownSystemListener()
+})
+
+// ---- 主题下拉选项 ----
+const themeOptions: DropdownOption[] = [
+  {
+    label: '跟随系统',
+    key: 'system',
+    icon: () => h(NIcon, null, { default: () => h(LaptopOutline) }),
+  },
+  {
+    label: '亮色模式',
+    key: 'light',
+    icon: () => h(NIcon, null, { default: () => h(SunnyOutline) }),
+  },
+  {
+    label: '暗色模式',
+    key: 'dark',
+    icon: () => h(NIcon, null, { default: () => h(MoonOutline) }),
+  },
+]
+
+const iconByMode: Record<string, typeof SunnyOutline> = {
+  system: LaptopOutline,
+  light: SunnyOutline,
+  dark: MoonOutline,
+}
+
+const labelByMode: Record<string, string> = {
+  system: '跟随系统',
+  light: '亮色模式',
+  dark: '暗色模式',
+}
+
+function handleThemeSelect(key: string) {
+  themeStore.setMode(key as 'system' | 'light' | 'dark')
+}
 
 const menuOptions: MenuOption[] = [
   {
@@ -57,7 +124,7 @@ function handleMenuUpdate(key: string) {
 </script>
 
 <template>
-  <NConfigProvider :theme="null">
+  <NConfigProvider :theme="themeStore.isDark ? darkTheme : null">
     <NMessageProvider>
       <NDialogProvider>
         <NLayout has-sider position="absolute">
@@ -86,6 +153,30 @@ function handleMenuUpdate(key: string) {
               :options="menuOptions"
               @update:value="handleMenuUpdate"
             />
+            <div
+              class="absolute bottom-0 left-0 right-0 border-t border-gray-100 px-3 py-3 dark:border-gray-800"
+            >
+              <NDropdown
+                placement="top"
+                :options="themeOptions"
+                :value="themeStore.mode"
+                @select="handleThemeSelect"
+              >
+                <NButton
+                  quaternary
+                  :circle="collapsed"
+                  size="small"
+                  class="mx-auto flex items-center gap-1.5"
+                >
+                  <template #icon>
+                    <NIcon>
+                      <component :is="iconByMode[themeStore.mode]" />
+                    </NIcon>
+                  </template>
+                  <span v-if="!collapsed" class="text-xs">{{ labelByMode[themeStore.mode] }}</span>
+                </NButton>
+              </NDropdown>
+            </div>
           </NLayoutSider>
           <NLayoutContent class="bg-gray-50 dark:bg-gray-900">
             <div class="h-full overflow-auto p-6">
