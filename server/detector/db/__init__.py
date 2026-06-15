@@ -31,13 +31,17 @@ __all__ = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import torch
+
+    # CUDA 不可用时自动回退到 CPU
+    if settings.YOLO_DEVICE.startswith("cuda") and not torch.cuda.is_available():
+        logger.warning(f"CUDA 不可用，已将 YOLO_DEVICE 从 {settings.YOLO_DEVICE!r} 回退为 cpu")
+        settings.YOLO_DEVICE = "cpu"
     """应用生命周期：启动时打印全局配置并确保模型就绪。"""
     logger.info("=" * 50)
     logger.info("加载全局配置 Settings:")
     logger.info(f"  yolo_model_path    = {settings.YOLO_MODEL_PATH!r}")
-    logger.info(f"  yolo_conf_threshold = {settings.YOLO_CONF_THRESHOLD}")
     logger.info(f"  yolo_device         = {settings.YOLO_DEVICE!r}")
-    logger.info("  模型提供商配置: 通过 /v1/provider 接口管理")
     logger.info("=" * 50)
 
     TrafficLightDetector.ensure_model(settings.YOLO_MODEL_PATH)
