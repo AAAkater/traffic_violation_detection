@@ -5,14 +5,18 @@ import DetectionList from '@/components/detect/DetectionList.vue'
 import ImageUploader from '@/components/detect/ImageUploader.vue'
 import { useMessage } from '@/composables/useMessage'
 import { useDetectStore } from '@/stores/detect'
+import { useHistoryStore } from '@/stores/history'
 import { useProviderStore } from '@/stores/provider'
-import type { JudgeData, ProviderData } from '@/types/api'
+import type { DetectData, JudgeData, ProviderData } from '@/types/api'
 import { NCard, NSteps, NStep, NButton, NSelect, NSpace } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { shallowRef, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const detectStore = useDetectStore()
 const providerStore = useProviderStore()
+const historyStore = useHistoryStore()
 const { showError } = useMessage()
 const { currentResult, isUploading } = storeToRefs(detectStore)
 
@@ -32,6 +36,25 @@ onMounted(async () => {
     providers.value = providerStore.providers
   } catch {
     showError('获取提供商列表失败')
+  }
+
+  const targetImageId = route.query.image_id as string | undefined
+  if (targetImageId) {
+    let historyItem = historyStore.items.find((i) => i.image_id === targetImageId)
+    if (!historyItem) {
+      await historyStore.fetchHistory({ page: 1, page_size: 100 })
+      historyItem = historyStore.items.find((i) => i.image_id === targetImageId)
+    }
+    if (historyItem) {
+      detectStore.setResult({
+        image_id: historyItem.image_id,
+        detections: historyItem.detections as DetectData['detections'],
+      })
+      if (historyItem.image_url) {
+        uploadedImageUrl.value = historyItem.image_url
+      }
+      currentStep.value = 2
+    }
   }
 })
 

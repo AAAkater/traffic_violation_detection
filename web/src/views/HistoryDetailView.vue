@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useHistoryStore } from '@/stores/history'
-import { NCard, NTag, NSpin, NDescriptions, NDescriptionsItem } from 'naive-ui'
+import { NCard, NTag, NSpin, NDescriptions, NDescriptionsItem, NButton } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
+const router = useRouter()
 const historyStore = useHistoryStore()
 const { items, isLoading } = storeToRefs(historyStore)
 
@@ -91,7 +92,16 @@ onMounted(() => {
         </NCard>
 
         <NCard v-else title="判定状态">
-          <div class="py-8 text-center text-gray-400">尚未进行 AI 判定</div>
+          <div class="space-y-4 py-8 text-center">
+            <div class="text-gray-400">尚未进行 AI 判定</div>
+            <NButton
+              type="primary"
+              size="small"
+              @click="router.push({ name: 'detect', query: { image_id: imageId } })"
+            >
+              前往交通检测
+            </NButton>
+          </div>
         </NCard>
       </template>
       <div v-else class="py-12 text-center text-gray-400">未找到该记录</div>

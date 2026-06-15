@@ -21,10 +21,14 @@ export const useDetectStore = defineStore('detect', () => {
     }
   }
 
+  function setResult(data: DetectData) {
+    currentResult.value = data
+  }
+
   function reset() {
     currentResult.value = null
     error.value = null
   }
 
-  return { currentResult, isUploading, error, upload, reset }
+  return { currentResult, isUploading, error, upload, setResult, reset }
 })
