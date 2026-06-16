@@ -1,7 +1,6 @@
 """检测业务逻辑 — 图片上传、YOLO 检测、空间过滤、结果持久化。"""
 
 import io
-import time
 import uuid
 
 import numpy as np
@@ -56,7 +55,6 @@ class DetectService:
         logger.debug(f"[detect] 裁剪出 {len(quadrants)} 个象限")
 
         # ── 2. YOLO 检测 + 空间过滤 ──
-        t0 = time.perf_counter()
         detector = TrafficLightDetector(
             settings.YOLO_MODEL_PATH,
             device=settings.YOLO_DEVICE,
@@ -96,9 +94,6 @@ class DetectService:
                 logger.debug(f"[{eng_name}] 检出成功, all={len(raw)} vehicle={len(vehicle)}")
             else:
                 logger.debug(f"[{eng_name}] 未检出")
-
-        elapsed = time.perf_counter() - t0
-        logger.info(f"[detect] YOLO检测总耗时: {elapsed:.3f}s")
 
         # ── 3. 汇总检测结果 ──
         items: list[DetectionItem] = []

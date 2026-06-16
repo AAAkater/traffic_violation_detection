@@ -1,7 +1,6 @@
 """红绿灯检测模型 — YOLO 加载与推理。"""
 
 import os
-import time
 from pathlib import Path
 
 import numpy as np
@@ -60,10 +59,7 @@ class TrafficLightDetector:
         Returns:
             每个元素为 (bbox, confidence, class_name) 元组。
         """
-        t0 = time.perf_counter()
         results = self._model.predict(source=source, verbose=False, device=self._device)
-        elapsed = time.perf_counter() - t0
-        logger.info(f"[YOLO] 推理耗时: {elapsed:.3f}s")
         raw: list[tuple[list[float], float, str]] = []
 
         for r in results:
